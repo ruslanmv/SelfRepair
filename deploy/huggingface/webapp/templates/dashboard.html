@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - RepoGuardian{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <div>
+            <h1>Dashboard</h1>
+            <p>Welcome back, {{ user.display_name or user.username }}</p>
+        </div>
+        <button class="btn btn-primary" id="scanBtn" onclick="startScan()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;">
+                <path d="M23 4v6h-6M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+            </svg>
+            Run Scan
+        </button>
+    </div>
+    <div id="scanProgress" style="display:none;" class="alert alert-info">
+        <span class="spinner" style="margin-right:8px;"></span>
+        <span id="scanProgressText">Scanning repositories...</span>
+    </div>
+    <div class="stats-grid">
+        <div class="stat-card total"><div class="stat-value">{{ stats.total_repos }}</div><div class="stat-label">Total Repos</div></div>
+        <div class="stat-card healthy"><div class="stat-value">{{ stats.healthy }}</div><div class="stat-label">Healthy</div></div>
+        <div class="stat-card degraded"><div class="stat-value">{{ stats.degraded }}</div><div class="stat-label">Degraded</div></div>
+        <div class="stat-card down"><div class="stat-value">{{ stats.down }}</div><div class="stat-label">Down</div></div>
+        <div class="stat-card repaired"><div class="stat-value">{{ stats.repaired }}</div><div class="stat-label">Repaired</div></div>
+        <div class="stat-card" style="border-left: 3px solid var(--text-muted);"><div class="stat-value" style="color: var(--text-primary);">{{ stats.total_scans }}</div><div class="stat-label">Total Scans</div></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Recent Scans</div>
+        {% if scans %}
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Status</th><th>Started</th><th>Repos</th><th>Healthy</th><th>Degraded</th><th>Down</th><th>Repaired</th><th>Trigger</th><th></th></tr></thead>
+                <tbody>
+                    {% for scan in scans %}
+                    <tr>
+                        <td><span class="badge badge-{{ scan.status }}"><span class="badge-dot"></span> {{ scan.status|capitalize }}</span></td>
+                        <td style="color: var(--text-secondary); font-size: 13px;">{{ scan.started_at.strftime('%Y-%m-%d %H:%M') if scan.started_at else '-' }}</td>
+                        <td>{{ scan.total_repos }}</td>
+                        <td><span style="color: var(--green);">{{ scan.healthy }}</span></td>
+                        <td><span style="color: var(--yellow);">{{ scan.degraded }}</span></td>
+                        <td><span style="color: var(--red);">{{ scan.down }}</span></td>
+                        <td><span style="color: var(--purple);">{{ scan.repaired }}</span></td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{{ scan.trigger }}</td>
+                        <td>{% if scan.status == 'completed' %}<a href="/scan/{{ scan.id }}" class="btn btn-sm">View</a>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>No scans yet</h3>
+            <p>Configure your platform tokens in Settings, then click "Run Scan" to analyze your repositories.</p>
+            <a href="/settings" class="btn btn-primary">Configure Settings</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let currentScanId = null;
+let pollInterval = null;
+async function startScan() {
+    const btn = document.getElementById('scanBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Starting...';
+    try {
+        const resp = await fetch('/api/scan/start', { method: 'POST' });
+        const data = await resp.json();
+        currentScanId = data.scan_id;
+        document.getElementById('scanProgress').style.display = 'flex';
+        document.getElementById('scanProgressText').textContent = 'Scanning repositories...';
+        pollInterval = setInterval(pollScan, 5000);
+    } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = 'Run Scan';
+        alert('Failed to start scan: ' + err.message);
+    }
+}
+async function pollScan() {
+    if (!currentScanId) return;
+    try {
+        const resp = await fetch(`/api/scan/${currentScanId}/status`);
+        const data = await resp.json();
+        if (data.status === 'completed' || data.status === 'failed') {
+            clearInterval(pollInterval);
+            document.getElementById('scanProgress').style.display = 'none';
+            location.reload();
+        } else {
+            document.getElementById('scanProgressText').textContent = `Scanning... ${data.total_repos || 0} repos found`;
+        }
+    } catch (err) { console.error('Poll error:', err); }
+}
+</script>
+{% endblock %}

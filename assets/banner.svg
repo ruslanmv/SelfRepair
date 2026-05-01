@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300">
+  <defs>
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0c29;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a1a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00d2ff" />
+      <stop offset="100%" style="stop-color:#3a7bd5" />
+    </linearGradient>
+    <linearGradient id="checkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00f260" />
+      <stop offset="100%" style="stop-color:#0575e6" />
+    </linearGradient>
+    <filter id="bannerGlow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="300" rx="16" fill="url(#bannerBg)"/>
+  <!-- Grid pattern -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#00d2ff" stroke-width="0.3" opacity="0.1"/>
+  </pattern>
+  <rect width="1200" height="300" fill="url(#grid)"/>
+  <!-- Shield icon -->
+  <g transform="translate(80, 50)">
+    <path d="M100 20 L170 50 L170 120 C170 160 140 190 100 200 C60 190 30 160 30 120 L30 50 Z" 
+          fill="none" stroke="url(#textGrad)" stroke-width="5" stroke-linejoin="round" filter="url(#bannerGlow)"/>
+    <path d="M100 35 L160 60 L160 118 C160 152 134 178 100 187 C66 178 40 152 40 118 L40 60 Z" 
+          fill="#0f0c29" opacity="0.7"/>
+    <path d="M75 115 L95 135 L130 95" 
+          fill="none" stroke="url(#checkGrad)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#bannerGlow)"/>
+  </g>
+  <!-- Title -->
+  <text x="300" y="140" font-family="'Segoe UI', Arial, sans-serif" font-size="72" font-weight="700" fill="url(#textGrad)" filter="url(#bannerGlow)">RepoGuardian</text>
+  <!-- Subtitle -->
+  <text x="300" y="190" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#8892b0" letter-spacing="3">AUTONOMOUS REPOSITORY HEALTH &amp; REPAIR</text>
+  <!-- Version badge -->
+  <rect x="300" y="210" width="55" height="24" rx="12" fill="#00d2ff" opacity="0.15"/>
+  <text x="327" y="227" font-family="'Segoe UI', Arial, sans-serif" font-size="12" fill="#00d2ff" text-anchor="middle">v2.0</text>
+  <rect x="365" y="210" width="70" height="24" rx="12" fill="#00f260" opacity="0.15"/>
+  <text x="400" y="227" font-family="'Segoe UI', Arial, sans-serif" font-size="12" fill="#00f260" text-anchor="middle">stable</text>
+  <!-- Decorative lines -->
+  <line x1="0" y1="298" x2="1200" y2="298" stroke="url(#textGrad)" stroke-width="2" opacity="0.5"/>
+</svg>

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Create Account - RepoGuardian{% endblock %}
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <h2>Create your account</h2>
+        <p class="subtitle">Start monitoring your repository fleet</p>
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        <form method="POST" action="/register">
+            <div class="form-group">
+                <label class="form-label" for="username">Username</label>
+                <input class="form-input" type="text" id="username" name="username" required autofocus placeholder="johndoe" minlength="3" maxlength="50">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="email">Email</label>
+                <input class="form-input" type="email" id="email" name="email" required placeholder="john@company.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input class="form-input" type="password" id="password" name="password" required placeholder="Minimum 8 characters" minlength="8">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="password_confirm">Confirm Password</label>
+                <input class="form-input" type="password" id="password_confirm" name="password_confirm" required placeholder="Repeat password" minlength="8">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Create Account</button>
+        </form>
+        <div class="auth-footer">
+            Already have an account? <a href="/login">Sign in</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

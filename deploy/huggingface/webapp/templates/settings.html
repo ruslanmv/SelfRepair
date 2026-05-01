@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Settings - RepoGuardian{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 800px;">
+    <div class="page-header">
+        <div>
+            <h1>Settings</h1>
+            <p>Configure your platform credentials and account</p>
+        </div>
+    </div>
+    {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="POST" action="/settings">
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">Profile</div>
+            <div class="form-group">
+                <label class="form-label" for="display_name">Display Name</label>
+                <input class="form-input" type="text" id="display_name" name="display_name" value="{{ user.display_name or '' }}" placeholder="Your name">
+            </div>
+        </div>
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">Platform Credentials</div>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">Tokens are stored securely and used only for scanning your repositories.</p>
+            <div class="form-group">
+                <label class="form-label" for="github_token">GitHub Token</label>
+                <input class="form-input" type="password" id="github_token" name="github_token" placeholder="{{ '(saved)' if user.github_token else 'ghp_...' }}">
+                <div class="form-hint">Personal access token with repo read scope</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="gitlab_token">GitLab Token</label>
+                <input class="form-input" type="password" id="gitlab_token" name="gitlab_token" placeholder="{{ '(saved)' if user.gitlab_token else 'glpat-...' }}">
+                <div class="form-hint">Personal access token with read_api scope</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="hf_token">Hugging Face Token</label>
+                <input class="form-input" type="password" id="hf_token" name="hf_token" placeholder="{{ '(saved)' if user.hf_token else 'hf_...' }}">
+                <div class="form-hint">Read-only access token for HuggingFace Hub</div>
+            </div>
+        </div>
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">Change Password</div>
+            <div class="form-group">
+                <label class="form-label" for="current_password">Current Password</label>
+                <input class="form-input" type="password" id="current_password" name="current_password" placeholder="Required to change password">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="new_password">New Password</label>
+                <input class="form-input" type="password" id="new_password" name="new_password" placeholder="Minimum 8 characters" minlength="8">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+    </form>
+</div>
+{% endblock %}

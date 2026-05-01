@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Audit Log - RepoGuardian{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <div>
+            <h1>Audit Log</h1>
+            <p>Administrative activity history</p>
+        </div>
+    </div>
+    <div class="card">
+        {% if logs %}
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Timestamp</th><th>Action</th><th>User ID</th><th>IP Address</th><th>Details</th></tr></thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td style="font-size: 13px; color: var(--text-secondary);">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '-' }}</td>
+                        <td><span class="badge badge-unknown">{{ log.action }}</span></td>
+                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">{{ (log.user_id or '-')[:12] }}</td>
+                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">{{ log.ip_address or '-' }}</td>
+                        <td style="font-size: 13px;">{{ log.details or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><h3>No audit entries</h3><p>Activity will appear here as users interact with the platform.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

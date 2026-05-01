@@ -1,0 +1,13 @@
+{
+  "name": "SelfRepair Repo Agent",
+  "description": "Scans, diagnoses, repairs, validates, and reports on software repositories using AI-powered repair generation and vendor-neutral orchestration.",
+  "url": "http://localhost:8000/v1/rpc",
+  "capabilities": [
+    "repo_scan",
+    "issue_classification",
+    "repair_generation",
+    "validation",
+    "reporting",
+    "secure_delivery"
+  ]
+}

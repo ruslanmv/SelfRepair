@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Scan Report - RepoGuardian{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <div>
+            <h1>Scan Report</h1>
+            <p>{{ scan.started_at.strftime('%Y-%m-%d %H:%M UTC') if scan.started_at else 'N/A' }} &mdash;
+               <span class="badge badge-{{ scan.status }}"><span class="badge-dot"></span> {{ scan.status|capitalize }}</span>
+            </p>
+        </div>
+        <a href="/dashboard" class="btn">&larr; Back to Dashboard</a>
+    </div>
+    <div class="stats-grid">
+        <div class="stat-card total"><div class="stat-value">{{ scan.total_repos }}</div><div class="stat-label">Total Repos</div></div>
+        <div class="stat-card healthy"><div class="stat-value">{{ scan.healthy }}</div><div class="stat-label">Healthy</div></div>
+        <div class="stat-card degraded"><div class="stat-value">{{ scan.degraded }}</div><div class="stat-label">Degraded</div></div>
+        <div class="stat-card down"><div class="stat-value">{{ scan.down }}</div><div class="stat-label">Down</div></div>
+        <div class="stat-card repaired"><div class="stat-value">{{ scan.repaired }}</div><div class="stat-label">Repaired</div></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Repository Details</div>
+        {% if reports %}
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Repository</th><th>Platform</th><th>Status</th><th>Makefile</th><th>pyproject</th><th>Tests</th><th>Python 3.11</th><th>Install</th><th>Test</th><th>Start</th><th>Fixes</th><th>PR</th></tr></thead>
+                <tbody>
+                    {% for r in reports %}
+                    <tr>
+                        <td style="font-weight: 600;">{{ r.repo_name }}</td>
+                        <td><span class="platform-icon">{% if r.platform == 'github' %}GH{% elif r.platform == 'gitlab' %}GL{% else %}HF{% endif %} {{ r.kind }}</span></td>
+                        <td><span class="badge badge-{{ r.status }}"><span class="badge-dot"></span> {{ r.status|capitalize }}</span></td>
+                        <td class="{{ 'check-pass' if r.makefile_ok else 'check-fail' }}">{{ '&#10003;' if r.makefile_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.pyproject_ok else 'check-fail' }}">{{ '&#10003;' if r.pyproject_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.health_test_ok else 'check-fail' }}">{{ '&#10003;' if r.health_test_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.python311_ok else 'check-fail' }}">{{ '&#10003;' if r.python311_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.install_ok else 'check-fail' }}">{{ '&#10003;' if r.install_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.test_ok else 'check-fail' }}">{{ '&#10003;' if r.test_ok else '&#10007;' }}</td>
+                        <td class="{{ 'check-pass' if r.start_ok else 'check-fail' }}">{{ '&#10003;' if r.start_ok else '&#10007;' }}</td>
+                        <td>{{ r.fix_attempts }}</td>
+                        <td>{% if r.pr_url %}<a href="{{ r.pr_url }}" target="_blank" class="btn btn-sm">PR</a>{% else %}<span style="color: var(--text-muted);">-</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><h3>No repository reports</h3><p>This scan did not produce any repository reports.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

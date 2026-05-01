@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "selfrepair-repo"
+version = "1.0.0"
+description = "Open-source repository health, safe repair, validation, and audit-ready reporting automation."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Apache-2.0" }
+authors = [{ name = "SelfRepair Repo Maintainers" }]
+keywords = ["repository", "health", "repair", "devops", "automation", "fastapi", "agent"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = [
+  "PyGithub>=2.3.0",
+  "GitPython>=3.1.43",
+  "Jinja2>=3.1.4",
+  "PyYAML>=6.0.2",
+  "httpx>=0.27.0",
+  "pydantic>=2.8.2",
+  "pydantic-settings>=2.4.0",
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+  "tenacity>=8.5.0",
+  "packaging>=24.1",
+  "huggingface_hub>=0.28.0",
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.2",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.5.0",
+  "mypy>=1.10.0",
+]
+gitlab = ["python-gitlab>=4.0.0"]
+ollabridge = ["httpx>=0.27.0"]
+all = ["selfrepair-repo[dev,gitlab,ollabridge]"]
+
+[project.urls]
+Homepage = "https://github.com/ruslanmv/SelfRepair-Repo"
+Documentation = "https://github.com/ruslanmv/SelfRepair-Repo/tree/main/docs"
+Issues = "https://github.com/ruslanmv/SelfRepair-Repo/issues"
+
+[project.scripts]
+selfrepair-repo = "selfrepair.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["selfrepair*", "backend*"]
+exclude = ["tests*", "state*", "status-site*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
