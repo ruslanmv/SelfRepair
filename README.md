@@ -319,9 +319,7 @@ pytest --cov=selfrepair --cov-report=html
 
 SelfRepair Repo is open-source under Apache-2.0 and free to use commercially. Community support is available through [GitHub Issues](https://github.com/ruslanmv/SelfRepair-Repo/issues) and [Discussions](https://github.com/ruslanmv/SelfRepair-Repo/discussions).
 
-Custom integrations, on-premise deployments, and procurement (MSAs, DPAs, security questionnaires) are available on request.
-
-📧 **Contact our team:** [contactus@ruslanmv.com](mailto:contactus@ruslanmv.com)
+📧 **Contact** [contactus@ruslanmv.com](mailto:contactus@ruslanmv.com)
 
 ---
 
