@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
+
 
 def makefile_has_start(makefile_path: Path) -> bool:
     if not makefile_path.exists():

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.models import InfraStatus
+
 
 def default_infra_status() -> list[InfraStatus]:
     return [

@@ -1,0 +1,25 @@
+# Reduce build context size and avoid baking dev artefacts into images.
+.git
+.github
+.venv
+.venvs
+venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+build
+dist
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+state
+status-site
+tests
+docs
+examples
+*.md
+!README.md
+node_modules

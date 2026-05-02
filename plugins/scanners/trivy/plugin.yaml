@@ -1,0 +1,26 @@
+kind: scanner
+id: trivy
+version: "0.50.0"
+
+inputs:
+  - workspace_path
+outputs:
+  - findings.sarif
+
+# Trivy needs network for vulnerability DB updates. Pre-build with
+# `trivy image --download-db-only` to bake the DB and switch to network: none.
+runtime:
+  image: "aquasec/trivy:0.50.0"
+  cmd:
+    - "trivy"
+    - "fs"
+    - "--format=sarif"
+    - "--output=/out/findings.sarif"
+    - "--scanners=vuln,secret,config"
+    - "--no-progress"
+    - "--severity=MEDIUM,HIGH,CRITICAL"
+    - "/in"
+  network: bridge
+  cpu: "1"
+  memory: "2Gi"
+  timeout: 600

@@ -1,0 +1,28 @@
+kind: scanner
+id: semgrep
+version: "1.84.0"
+
+inputs:
+  - workspace_path
+outputs:
+  - findings.sarif
+
+# `--config=auto` pulls rulesets from the Semgrep registry on first run, so
+# this manifest opts into bridge networking. Air-gapped operators should
+# build a custom image (see Dockerfile in this directory) that pre-fetches
+# the ruleset and switch network to `none`.
+runtime:
+  image: "semgrep/semgrep:1.84"
+  cmd:
+    - "semgrep"
+    - "scan"
+    - "--config=auto"
+    - "--sarif"
+    - "--output=/out/findings.sarif"
+    - "--timeout=240"
+    - "--metrics=off"
+    - "/in"
+  network: bridge
+  cpu: "1"
+  memory: "2Gi"
+  timeout: 300

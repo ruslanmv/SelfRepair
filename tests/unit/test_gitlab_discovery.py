@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from selfrepair.inventory.gitlab_discovery import GitLabDiscovery
 from selfrepair.settings import Settings
+
 
 def test_gitlab_discovery_no_token(tmp_path):
     settings = Settings(

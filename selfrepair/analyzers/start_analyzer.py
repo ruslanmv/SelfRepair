@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
+
 
 def has_start_target(repo_dir: Path) -> bool:
     path = repo_dir / "Makefile"

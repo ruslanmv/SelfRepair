@@ -62,8 +62,9 @@ def _heal_space(report: RepoHealthReport, repo_dir: Path, settings: Settings) ->
     # Handle hardware if needed
     if diag.needs_gpu and settings.hf_token:
         try:
-            from selfrepair.inventory.hf_hardware import request_zerogpu
             from huggingface_hub import HfApi
+
+            from selfrepair.inventory.hf_hardware import request_zerogpu
             hf_api = HfApi(token=settings.hf_token)
             namespace = report.repo.namespace or report.repo.full_name.split("/")[0]
             success, hw_report = request_zerogpu(

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.models import Incident, RepoHealthReport
+
 
 def incidents_from_reports(reports: list[RepoHealthReport]) -> list[Incident]:
     incidents: list[Incident] = []

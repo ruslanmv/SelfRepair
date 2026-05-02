@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from selfrepair.llm.ollabridge_client import OllaBridgeClient
 from selfrepair.settings import Settings
+
 
 def test_ollabridge_unavailable(tmp_path):
     settings = Settings(
