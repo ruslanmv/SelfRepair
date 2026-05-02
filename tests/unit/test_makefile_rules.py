@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.standards.makefile_rules import ensure_makefile
+
 
 def test_ensure_makefile(tmp_path):
     ok, changed = ensure_makefile(tmp_path)

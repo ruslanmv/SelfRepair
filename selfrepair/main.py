@@ -10,15 +10,15 @@ from selfrepair.governance.branch_rules import build_branch_name
 from selfrepair.governance.policy_engine import evaluate_policy
 from selfrepair.healing.healing_loop import run_healing_loop
 from selfrepair.inventory.filters import include_repo
-from selfrepair.inventory.huggingface_discovery import HuggingFaceDiscovery
 from selfrepair.inventory.github_discovery import GitHubOrgDiscovery
 from selfrepair.inventory.gitlab_discovery import GitLabDiscovery
+from selfrepair.inventory.huggingface_discovery import HuggingFaceDiscovery
 from selfrepair.inventory.repo_inventory import save_inventory
 from selfrepair.matrixlab.sandbox import SandboxManager
 from selfrepair.models import RepoHealthReport, RepoRef
 from selfrepair.reporting.history_builder import write_history
-from selfrepair.site.generator import generate_site
 from selfrepair.settings import Settings, get_settings
+from selfrepair.site.generator import generate_site
 
 logger = logging.getLogger(__name__)
 

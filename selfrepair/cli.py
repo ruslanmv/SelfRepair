@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-import json
 import logging
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from selfrepair.inventory.huggingface_discovery import HuggingFaceDiscovery
 from selfrepair.inventory.github_discovery import GitHubOrgDiscovery
 from selfrepair.inventory.gitlab_discovery import GitLabDiscovery
+from selfrepair.inventory.huggingface_discovery import HuggingFaceDiscovery
 from selfrepair.log_config import configure_logging
 from selfrepair.main import check_single_repo, run_daily
-from selfrepair.site.generator import generate_site
 from selfrepair.settings import get_settings
+from selfrepair.site.generator import generate_site
 
 app = typer.Typer(add_completion=False, help="SelfRepair Repo CLI – autonomous repo health & repair")
 console = Console()
@@ -115,7 +114,6 @@ def fix_space(
     import tempfile
     from pathlib import Path
 
-    from selfrepair.analyzers.space_analyzer import analyze_space
     from selfrepair.healing.space_healer import heal_space
     from selfrepair.models import RepoHealthReport, RepoRef
 
@@ -176,15 +174,15 @@ def fix_space(
         if diag.issues:
             console.print("[bold red]Issues found:[/bold red]")
             for issue in diag.issues:
-                console.print(f"  [red]\u2717[/red] {issue}")
+                console.print(f"  [red]✗[/red] {issue}")
         if diag.recommendations:
             console.print("[bold yellow]Recommendations:[/bold yellow]")
             for rec in diag.recommendations:
-                console.print(f"  [yellow]\u2192[/yellow] {rec}")
+                console.print(f"  [yellow]→[/yellow] {rec}")
         if changed:
             console.print(f"\n[bold green]Fixed {len(changed)} files:[/bold green]")
             for f in changed:
-                console.print(f"  [green]\u2713[/green] {f}")
+                console.print(f"  [green]✓[/green] {f}")
 
         # Push if requested
         if push and changed and settings.hf_token:

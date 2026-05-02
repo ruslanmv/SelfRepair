@@ -17,27 +17,32 @@
 
 ---
 
+## 🎯 Enterprise Value Proposition
+
+SelfRepair Repo is engineered for organizations that need to ship faster without compromising on security, governance, or audit posture.
+
+- **Accelerated Delivery** — Reduce manual repository configuration and CI troubleshooting by up to **80%** through deterministic auto-repair and policy-driven workflows.
+- **Continuous Compliance** — Enforce organization-wide security and architectural standards across every connected repository, automatically and continuously.
+- **Audit-Ready Reporting** — Generate SOC 2 / ISO 27001-friendly health reports and tamper-evident audit trails for instant visibility into your software supply chain.
+- **Reduced MTTR** — Cut mean time to repair from hours to minutes with AI-assisted, policy-gated fixes that ship as reviewable Pull Requests.
+- **Vendor Neutrality** — Multi-platform support (GitHub, GitLab, Hugging Face) and pluggable LLM backends keep you in control of where your code and inference run.
+
+---
+
 ## 🛡️ Overview
 
 SelfRepair Repo scans repositories, detects delivery risks, generates repairs with AI assistance, validates fixes, and returns an audit-ready report.
 
 Built on top of the original repository-health engine, it keeps the existing strengths of repository discovery, scanning, healing, sandbox validation, and reporting, while adding a FastAPI backend, multi-agent orchestration, and a vendor-neutral `/v1/rpc` endpoint for agent and tool integration.
 
-```
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│   Discover    │───▶│    Analyze     │───▶│     Heal      │───▶│    Report     │
-│  GitHub       │    │  Layout       │    │  Auto-fix    │    │  Dashboard   │
-│  GitLab       │    │  Standards    │    │  LLM-assist  │    │  JSON / HTML │
-│  HuggingFace  │    │  Health       │    │  PR-ready    │    │  Artifacts   │
-└───────────────┘    └───────────────┘    └───────────────┘    └───────────────┘
-```
-
 ---
 
-## ✨ Key Features
+[![Demo](assets/demo.gif)](assets/demo.gif)
 
-| Feature | Description |
-|---------|-------------|
+## ✨ Core Capabilities
+
+| Capability | Description |
+|------------|-------------|
 | 🔍 **Multi-platform Discovery** | Scan GitHub orgs/users, GitLab groups, and Hugging Face namespaces |
 | 🧰 **Automated Repair** | Fix missing Makefiles, pyproject.toml, health tests, and HF metadata |
 | 🤖 **LLM-Assisted Healing** | OllaBridge Cloud integration for intelligent repair suggestions |
@@ -48,23 +53,36 @@ Built on top of the original repository-health engine, it keeps the existing str
 | 📦 **MatrixLab Sandbox** | Isolated execution environment for safe verification |
 | 🌐 **GitLab Support** | Full GitLab API v4 integration (gitlab.com + self-hosted) |
 | 🤗 **HuggingFace Support** | Model, dataset, and Space repository management |
+| 👁️ **Issue Watch** | Sync, classify, and act on external GitHub / GitLab / HF issues |
+| 🔐 **CI Guardian** | Detect, dedupe, and policy-gate CI failures across the fleet |
 
 ---
 
+## 🔒 Security & Data Privacy
 
+SelfRepair Repo is designed for zero-trust enterprise environments. Security and data governance are first-class concerns, not afterthoughts.
 
-## 🚀 Quick Start
+- **Air-Gapped Capable** — Run entirely on-premise using local LLMs through OllaBridge with **zero external network calls**. Suitable for regulated industries and government deployments.
+- **No Data Retention by Design** — Proprietary source code is scanned in isolated MatrixLab sandboxes and is **never used to train external models**. LLM context windows are scoped to each repair and discarded after policy evaluation.
+- **Secret Redaction at Source** — A 14-pattern entry-gate redactor (cloud creds, GitHub PATs, GitLab/HF/OpenAI/Anthropic tokens, npm/PyPI tokens, auth headers) plus a Shannon-entropy fallback ensures secrets never leave the repository boundary.
+- **Human-in-the-Loop** — All automated repairs are proposed as **Draft Pull Requests / Merge Requests**. No code is merged without explicit human approval; auto-merge is opt-in per policy bundle.
+- **RBAC & Governance** — Policy bundles defined in OPA/Rego control which classes of fixes can be applied, by whom, and under what conditions.
+- **Sigstore-Attested Commits** — Every automated commit is cryptographically signed and verifiable against the public Sigstore transparency log.
+- **Tamper-Evident Audit Log** — Append-only audit trail with monthly partitioning, 30-day hot retention, and SHA-256 chain verification — ready for SOC 2 and ISO 27001 evidence collection.
+- **Tenancy-as-a-Row** — Multi-tenant by default. Every record carries an `org_id`; data isolation is enforced at the SQL layer.
+
+---
+
+## 🛠️ Installation & Setup
 
 ### What SelfRepair Repo does
 
-- clones and inspects a target repository
-- checks delivery-readiness signals such as `Makefile`, `pyproject.toml`, tests, install, and start flows
-- classifies delivery, security, and compliance issues
-- uses AI-assisted repair generation to propose safe fixes
-- validates the repaired repository
-- returns an audit-friendly final report for enterprise review
-
-### Local backend run
+1. Clones and inspects a target repository
+2. Checks delivery-readiness signals such as `Makefile`, `pyproject.toml`, tests, install, and start flows
+3. Classifies delivery, security, and compliance issues
+4. Uses AI-assisted repair generation to propose safe fixes
+5. Validates the repaired repository in an isolated sandbox
+6. Returns an audit-friendly final report for enterprise review
 
 ### Installation
 
@@ -297,6 +315,16 @@ pytest --cov=selfrepair --cov-report=html
 
 ---
 
+## 💼 Enterprise Support & Commercial Use
+
+SelfRepair Repo is open-source under Apache-2.0 and free to use commercially. Community support is available through [GitHub Issues](https://github.com/ruslanmv/SelfRepair-Repo/issues) and [Discussions](https://github.com/ruslanmv/SelfRepair-Repo/discussions).
+
+Custom integrations, on-premise deployments, and procurement (MSAs, DPAs, security questionnaires) are available on request.
+
+📧 **Contact our team:** [contactus@ruslanmv.com](mailto:contactus@ruslanmv.com)
+
+---
+
 ## 📚 Related Projects
 
 | Project | Description |
@@ -312,9 +340,12 @@ pytest --cov=selfrepair --cov-report=html
 
 Apache-2.0 © [Ruslan Magana Vsevolodovna](https://github.com/ruslanmv)
 
+For commercial licensing inquiries, custom terms, or third-party integration agreements, please contact [contactus@ruslanmv.com](mailto:contactus@ruslanmv.com).
+
 ---
 
 <p align="center">
   <img src="assets/logo.svg" alt="SelfRepair Repo" width="64" /><br/>
-  <sub>Built with ❤️ for the open-source community</sub>
+  <sub><b>SelfRepair Repo</b> — Trusted automation for the modern software supply chain.</sub><br/>
+  <sub>Built in the open · Engineered for the enterprise.</sub>
 </p>

@@ -1,0 +1,76 @@
+# Local dev stack: postgres + redis + api + worker + one-shot migrate.
+# Bring up: docker compose -f deploy/compose/docker-compose.dev.yml up
+# Run migrations once before api/worker:
+#   docker compose -f deploy/compose/docker-compose.dev.yml run --rm migrate
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: selfrepair
+      POSTGRES_PASSWORD: selfrepair
+      POSTGRES_DB: selfrepair
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfrepair"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+psycopg://selfrepair:selfrepair@postgres/selfrepair
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: uvicorn selfrepair.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      SELFREPAIR_DATABASE_URL: postgresql+asyncpg://selfrepair:selfrepair@postgres/selfrepair
+      SELFREPAIR_REDIS_URL: redis://redis:6379/0
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-dev-secret-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: arq selfrepair.worker.main.WorkerSettings
+    environment:
+      SELFREPAIR_DATABASE_URL: postgresql+asyncpg://selfrepair:selfrepair@postgres/selfrepair
+      SELFREPAIR_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

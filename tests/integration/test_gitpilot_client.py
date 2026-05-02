@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.gitpilot.client import GitPilotClient
+
 
 def test_gitpilot_client_unavailable(temp_settings):
     client = GitPilotClient(temp_settings)

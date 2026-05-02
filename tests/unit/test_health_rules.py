@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.standards.health_test_rules import ensure_health_test
+
 
 def test_ensure_health_test(tmp_path):
     ok, changed = ensure_health_test(tmp_path)

@@ -4,9 +4,9 @@ from pathlib import Path
 
 from selfrepair.models import RepoHealthReport
 from selfrepair.standards.health_test_rules import ensure_health_test
+from selfrepair.standards.huggingface_rules import ensure_huggingface_metadata
 from selfrepair.standards.makefile_rules import ensure_makefile
 from selfrepair.standards.pyproject_rules import ensure_pyproject
-from selfrepair.standards.huggingface_rules import ensure_huggingface_metadata
 
 
 def apply_safe_local_fixes(report: RepoHealthReport, repo_dir: Path) -> list[str]:

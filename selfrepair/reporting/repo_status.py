@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.models import RepoHealthReport
+
 
 def to_repo_item(report: RepoHealthReport) -> dict:
     return {

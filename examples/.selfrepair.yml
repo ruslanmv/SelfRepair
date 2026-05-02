@@ -1,0 +1,54 @@
+# SelfRepair per-repo config. Drop at repo root.
+#
+# Without this file, defaults are conservative:
+#   - rule-based fixers only (no LLM escalation)
+#   - opens a PR, never pushes to default branch
+#   - codeowners must approve
+#
+# Schema: selfrepair.config.repo_config.RepoConfig
+# ADR: docs/adr/0001-deterministic-first.md
+
+version: 1
+
+# Inherit org defaults (optional)
+extends: my-org/selfrepair-baseline
+
+# When this repo is checked.
+schedule: "weekly"
+
+# Findings that may auto-merge (post-CI-green).
+# Anything not listed here always opens a PR for review.
+auto_merge:
+  - kind: makefile_missing
+    severity: low
+    require_ci_green: true
+  - kind: pyproject_python_version
+    severity: low
+    require_ci_green: true
+
+# Findings allowed to escalate from rule-based to LLM repair.
+# Default is empty — no LLM unless this list opts in.
+escalate_to_llm:
+  - kind: test_failure
+    max_iterations: 3
+  - kind: dependency_install_broken
+    max_iterations: 2
+
+# Paths the tool will never touch.
+deny_paths:
+  - "migrations/**"
+  - "infra/prod/**"
+  - "**/secrets.yaml"
+
+# Require CODEOWNERS approval on touched files.
+codeowners_required: true
+
+# Per-repo monthly budget for LLM repairs (USD). 0 = no LLM spend allowed.
+budget:
+  monthly_usd: 25.0
+
+# Where to notify.
+notifications:
+  slack: "#delivery-alerts"
+  email:
+    - platform-team@example.com

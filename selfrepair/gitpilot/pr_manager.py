@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from github import Github
 from git import Repo
+from github import Github
 
 from selfrepair.constants import STANDARD_COMMIT_MESSAGE
 from selfrepair.settings import Settings

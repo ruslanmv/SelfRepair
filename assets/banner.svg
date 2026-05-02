@@ -1,47 +1,76 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="SelfRepair — AI Secure Delivery Copilot">
   <defs>
-    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f0c29;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1a1a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0E27"/>
+      <stop offset="50%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#312E81"/>
     </linearGradient>
-    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#00d2ff" />
-      <stop offset="100%" style="stop-color:#3a7bd5" />
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="50%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
     </linearGradient>
-    <linearGradient id="checkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#00f260" />
-      <stop offset="100%" style="stop-color:#0575e6" />
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#10B981"/>
     </linearGradient>
-    <filter id="bannerGlow">
-      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
     </filter>
+    <pattern id="dots" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#10B981" opacity="0.15"/>
+    </pattern>
   </defs>
-  <rect width="1200" height="300" rx="16" fill="url(#bannerBg)"/>
-  <!-- Grid pattern -->
-  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#00d2ff" stroke-width="0.3" opacity="0.1"/>
-  </pattern>
-  <rect width="1200" height="300" fill="url(#grid)"/>
-  <!-- Shield icon -->
-  <g transform="translate(80, 50)">
-    <path d="M100 20 L170 50 L170 120 C170 160 140 190 100 200 C60 190 30 160 30 120 L30 50 Z" 
-          fill="none" stroke="url(#textGrad)" stroke-width="5" stroke-linejoin="round" filter="url(#bannerGlow)"/>
-    <path d="M100 35 L160 60 L160 118 C160 152 134 178 100 187 C66 178 40 152 40 118 L40 60 Z" 
-          fill="#0f0c29" opacity="0.7"/>
-    <path d="M75 115 L95 135 L130 95" 
-          fill="none" stroke="url(#checkGrad)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#bannerGlow)"/>
+
+  <!-- Backplate -->
+  <rect width="1200" height="300" rx="16" fill="url(#bg)"/>
+  <rect width="1200" height="300" rx="16" fill="url(#dots)"/>
+
+  <!-- Repair-loop icon: open ring (the heal loop) + arrowhead + checkmark in the core -->
+  <g transform="translate(95, 70)" filter="url(#glow)">
+    <circle cx="80" cy="80" r="68" fill="none" stroke="url(#brand)" stroke-width="6"
+            stroke-dasharray="320 100" stroke-linecap="round" transform="rotate(-90 80 80)"/>
+    <polygon points="148,76 158,80 148,84" fill="#10B981"/>
+    <circle cx="80" cy="80" r="48" fill="#0A0E27" opacity="0.85"/>
+    <polyline points="58,82 74,98 104,66" fill="none" stroke="url(#accent)"
+              stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
-  <!-- Title -->
-  <text x="300" y="140" font-family="'Segoe UI', Arial, sans-serif" font-size="72" font-weight="700" fill="url(#textGrad)" filter="url(#bannerGlow)">RepoGuardian</text>
-  <!-- Subtitle -->
-  <text x="300" y="190" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#8892b0" letter-spacing="3">AUTONOMOUS REPOSITORY HEALTH &amp; REPAIR</text>
-  <!-- Version badge -->
-  <rect x="300" y="210" width="55" height="24" rx="12" fill="#00d2ff" opacity="0.15"/>
-  <text x="327" y="227" font-family="'Segoe UI', Arial, sans-serif" font-size="12" fill="#00d2ff" text-anchor="middle">v2.0</text>
-  <rect x="365" y="210" width="70" height="24" rx="12" fill="#00f260" opacity="0.15"/>
-  <text x="400" y="227" font-family="'Segoe UI', Arial, sans-serif" font-size="12" fill="#00f260" text-anchor="middle">stable</text>
-  <!-- Decorative lines -->
-  <line x1="0" y1="298" x2="1200" y2="298" stroke="url(#textGrad)" stroke-width="2" opacity="0.5"/>
+
+  <!-- Wordmark -->
+  <text x="280" y="135" font-family="'Inter','Segoe UI',system-ui,Arial,sans-serif"
+        font-size="78" font-weight="800" fill="url(#brand)" letter-spacing="-2">SelfRepair</text>
+
+  <!-- Tagline -->
+  <text x="282" y="180" font-family="'Inter','Segoe UI',system-ui,Arial,sans-serif"
+        font-size="20" fill="#A5B4FC" letter-spacing="6" font-weight="500">
+    AI SECURE DELIVERY COPILOT
+  </text>
+
+  <!-- Pillars -->
+  <g font-family="'Inter','Segoe UI',system-ui,Arial,sans-serif" font-size="13"
+     fill="#67E8F9" letter-spacing="2">
+    <text x="282" y="220">DISCOVER  ·  HEAL  ·  VALIDATE  ·  REPORT</text>
+  </g>
+
+  <!-- Badges -->
+  <g font-family="'Inter','Segoe UI',system-ui,Arial,sans-serif" font-size="12" font-weight="600">
+    <rect x="282" y="240" width="62" height="26" rx="13" fill="#10B981" opacity="0.15"
+          stroke="#10B981" stroke-width="1" stroke-opacity="0.4"/>
+    <text x="313" y="258" fill="#10B981" text-anchor="middle">v1.0</text>
+
+    <rect x="354" y="240" width="76" height="26" rx="13" fill="#22D3EE" opacity="0.15"
+          stroke="#22D3EE" stroke-width="1" stroke-opacity="0.4"/>
+    <text x="392" y="258" fill="#67E8F9" text-anchor="middle">stable</text>
+
+    <rect x="440" y="240" width="100" height="26" rx="13" fill="#A78BFA" opacity="0.15"
+          stroke="#A78BFA" stroke-width="1" stroke-opacity="0.4"/>
+    <text x="490" y="258" fill="#C4B5FD" text-anchor="middle">Apache-2.0</text>
+  </g>
+
+  <!-- Bottom accent line -->
+  <line x1="0" y1="298" x2="1200" y2="298" stroke="url(#brand)" stroke-width="2" opacity="0.6"/>
 </svg>

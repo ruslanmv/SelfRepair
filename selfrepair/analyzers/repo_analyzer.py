@@ -44,10 +44,10 @@ def analyze_repo_layout(report: RepoHealthReport, repo_dir: Path) -> RepoHealthR
         StandardCheck(name="readme", ok=report.metadata_ok),
     ]
 
-    # Add Space-specific checks for HuggingFace Spaces
+    # HuggingFace Space-specific checks. analyze_space appends to report.checks
+    # in place; we don't need its return value here.
     if report.repo.platform == "huggingface" and report.repo_type == "space":
         from selfrepair.analyzers.space_analyzer import analyze_space
-        diag = analyze_space(report, repo_dir)
-        # Space checks are added to report.checks by analyze_space
+        analyze_space(report, repo_dir)
 
     return report

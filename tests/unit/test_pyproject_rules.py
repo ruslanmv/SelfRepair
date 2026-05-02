@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from selfrepair.standards.pyproject_rules import ensure_pyproject
+
 
 def test_ensure_pyproject(tmp_path):
     ok, changed = ensure_pyproject(tmp_path, "demo")
