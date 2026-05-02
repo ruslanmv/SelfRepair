@@ -60,7 +60,7 @@ Built on top of the original repository-health engine, it keeps the existing str
 
 ## 🔒 Security & Data Privacy
 
-SelfRepair Repo is designed for zero-trust enterprise environments. Security and data governance are first-class concerns, not afterthoughts.
+SelfRepair Repo is designed for **on-premises enterprise environments** where organizations need full control over their code, infrastructure, and data. Security, privacy, and governance are first-class concerns, not afterthoughts.
 
 - **Air-Gapped Capable** — Run entirely on-premise using local LLMs through OllaBridge with **zero external network calls**. Suitable for regulated industries and government deployments.
 - **No Data Retention by Design** — Proprietary source code is scanned in isolated MatrixLab sandboxes and is **never used to train external models**. LLM context windows are scoped to each repair and discarded after policy evaluation.
