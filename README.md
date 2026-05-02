@@ -88,8 +88,8 @@ SelfRepair Repo is designed for **on-premises enterprise environments** where or
 
 ```bash
 # Clone the repository
-git clone https://github.com/ruslanmv/SelfRepair-Repo.git
-cd SelfRepair-Repo
+git clone https://github.com/ruslanmv/SelfRepair.git
+cd SelfRepair
 
 # Create virtual environment and install
 python -m venv .venv
