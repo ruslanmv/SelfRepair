@@ -1,20 +1,137 @@
-version: "3.9"
+# SelfRepair local dev stack.
+#
+# Brings up the real product surface end-to-end:
+#   postgres -> migrate -> api + worker -> frontend
+#
+# `frontend/nginx.conf` reverse-proxies /api/* to the `selfrepair-api`
+# service, so the SPA at http://localhost:8080 talks to the real FastAPI
+# at http://selfrepair-api:8000 inside the compose network.
+#
+# Override secrets in a local `.env` (see `.env.example`). Never commit
+# real provider tokens here.
 
 services:
-  selfrepair-backend:
-    build: .
-    container_name: selfrepair-backend
+  postgres:
+    image: postgres:16-alpine
+    container_name: selfrepair-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-selfrepair}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-selfrepair}
+      POSTGRES_DB: ${POSTGRES_DB:-selfrepair}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-selfrepair} -d ${POSTGRES_DB:-selfrepair}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: selfrepair-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # One-shot: run alembic upgrade head before api/worker boot.
+  # Uses the same image as api/worker so a single build covers all three.
+  migrate:
+    build:
+      context: .
+    image: selfrepair:dev
+    container_name: selfrepair-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Alembic env.py reads DATABASE_URL and rewrites +asyncpg -> +psycopg.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-selfrepair}:${POSTGRES_PASSWORD:-selfrepair}@postgres:5432/${POSTGRES_DB:-selfrepair}
+    entrypoint: []
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  selfrepair-api:
+    build:
+      context: .
+    image: selfrepair:dev
+    container_name: selfrepair-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      SELFREPAIR_ENV: ${SELFREPAIR_ENV:-dev}
+      SELFREPAIR_LOG_LEVEL: ${SELFREPAIR_LOG_LEVEL:-INFO}
+      SELFREPAIR_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-selfrepair}:${POSTGRES_PASSWORD:-selfrepair}@postgres:5432/${POSTGRES_DB:-selfrepair}
+      SELFREPAIR_REDIS_URL: redis://redis:6379/0
+      SELFREPAIR_CORS_ALLOW_ORIGINS: ${SELFREPAIR_CORS_ALLOW_ORIGINS:-http://localhost:8080,http://localhost:3000}
+      SELFREPAIR_SESSION_SECRET: ${SELFREPAIR_SESSION_SECRET:-dev-only-change-me}
+      SELFREPAIR_GITHUB_WEBHOOK_SECRET: ${SELFREPAIR_GITHUB_WEBHOOK_SECRET:-}
+      SELFREPAIR_GITLAB_WEBHOOK_SECRET: ${SELFREPAIR_GITLAB_WEBHOOK_SECRET:-}
     ports:
       - "8000:8000"
-    environment:
-      DRY_RUN: "true"
-      LOG_LEVEL: "INFO"
-    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    command: ["uvicorn", "selfrepair.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    restart: unless-stopped
 
-  optional-dashboard:
+  selfrepair-worker:
     build:
-      context: ./deploy/huggingface
-    container_name: selfrepair-dashboard
-    ports:
-      - "7860:7860"
+      context: .
+    image: selfrepair:dev
+    container_name: selfrepair-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      SELFREPAIR_ENV: ${SELFREPAIR_ENV:-dev}
+      SELFREPAIR_LOG_LEVEL: ${SELFREPAIR_LOG_LEVEL:-INFO}
+      SELFREPAIR_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-selfrepair}:${POSTGRES_PASSWORD:-selfrepair}@postgres:5432/${POSTGRES_DB:-selfrepair}
+      SELFREPAIR_REDIS_URL: redis://redis:6379/0
+      SELFREPAIR_SANDBOX_DRIVER: ${SELFREPAIR_SANDBOX_DRIVER:-local}
+      SELFREPAIR_SANDBOX_WORKDIR: ${SELFREPAIR_SANDBOX_WORKDIR:-/tmp/selfrepair/sandbox}
+      SELFREPAIR_GITPILOT_URL: ${SELFREPAIR_GITPILOT_URL:-http://gitpilot:8000}
+      SELFREPAIR_GITPILOT_TOKEN: ${SELFREPAIR_GITPILOT_TOKEN:-}
+    entrypoint: []
+    command: ["arq", "selfrepair.worker.main.WorkerSettings"]
+    restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+    image: selfrepair-frontend:dev
+    container_name: selfrepair-frontend
+    depends_on:
+      selfrepair-api:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

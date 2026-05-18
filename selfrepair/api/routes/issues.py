@@ -9,6 +9,10 @@ tests can override it.
 Mutating endpoints aren't deleted here — they're scoped narrowly to the
 Phase-1 contract: enqueue a sync, or enqueue a repair job from a
 repairable issue. Triage / comment / suppress land with later phases.
+
+Org scope is sourced from `CtxDep` (session cookie / dev header) on the
+list endpoint; mutating endpoints still accept an explicit `org_id` in
+the body for backward compatibility.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from selfrepair.api.deps import CtxDep, SessionDep
 from selfrepair.persistence import get_sessionmaker
 from selfrepair.persistence.models import (
     ExternalIssue,
@@ -32,6 +37,8 @@ from selfrepair.persistence.repositories import IssuesRepository, JobsRepository
 router = APIRouter(prefix="/v1/issues", tags=["issues"])
 
 
+# Legacy session helper kept for the mutating endpoints; the list endpoint
+# uses the shared SessionDep.
 async def _session() -> AsyncIterator[AsyncSession]:
     database_url = os.getenv(
         "SELFREPAIR_DATABASE_URL",
@@ -88,18 +95,18 @@ def _serialize(issue: ExternalIssue) -> dict[str, Any]:
 
 @router.get("")
 async def list_issues(
-    org_id: uuid.UUID = Query(..., description="Org scope is mandatory"),
+    ctx: CtxDep,
+    session: SessionDep,
     repo_id: uuid.UUID | None = Query(default=None),
     provider: str | None = Query(default=None),
     state: str | None = Query(default=None),
     priority: str | None = Query(default=None),
     repairable: bool | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
     repo = IssuesRepository(session)
     issues = await repo.list_issues(
-        org_id=org_id,
+        org_id=ctx.org_id,
         repo_id=repo_id,
         provider=provider,
         state=state,
@@ -148,8 +155,6 @@ async def get_issue(
 
 
 class SyncRequest(BaseModel):
-    """Optional repo scope; unscoped sync touches every connected repo."""
-
     org_id: uuid.UUID = Field(..., description="Org scope is mandatory")
     repo_id: uuid.UUID | None = None
     actor: str | None = Field(
@@ -169,12 +174,6 @@ async def sync_issues(
     request: Request,
     session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
-    """Schedule a provider-side sync.
-
-    The actual fetch is the worker's `sync_external_issues` task. This
-    endpoint only records the audit row; the queue handoff is intentional
-    so a ratelimited provider doesn't block the API thread.
-    """
     queue = getattr(request.app.state, "queue", None)
     if queue is not None:
         await queue.enqueue_job(
@@ -194,16 +193,6 @@ async def run_repair_from_issue(
     request: Request,
     session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
-    """Enqueue a normal SelfRepair job from a repairable external issue.
-
-    Phase-1 contract:
-      * issue must exist and be marked repairable (security/feature_request
-        classes are blocked here; they're escalation-only)
-      * a job row is created with trigger=ISSUE
-      * an external_issue_action(action_type=run_repair) audit row links
-        the issue to the job
-      * the worker's existing process_job task picks it up
-    """
     issues_repo = IssuesRepository(session)
     issue = await issues_repo.get_issue(issue_id)
     if issue is None:
@@ -255,15 +244,6 @@ async def run_repair_from_issue(
     }
 
 
-# ---------------- triage / comment / suppress ----------------
-#
-# These three endpoints share a shape: take an actor + optional payload,
-# record an external_issue_action row, return its id. The action_status
-# is "completed" (synchronous side-effect) for triage/suppress, and
-# either "completed" or "failed" for comment depending on whether the
-# provider call succeeded.
-
-
 class TriageRequest(BaseModel):
     actor: str | None = None
     note: str | None = Field(default=None, max_length=2000)
@@ -285,12 +265,6 @@ async def triage_issue(
     body: TriageRequest,
     session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
-    """Record a manual triage decision.
-
-    Triage is the answer for issues that aren't auto-repairable
-    (security / bug / feature_request / unknown). It logs a triage row;
-    no upstream provider call is made.
-    """
     issues_repo = IssuesRepository(session)
     issue = await issues_repo.get_issue(issue_id)
     if issue is None:
@@ -317,13 +291,6 @@ async def comment_on_issue(
     request: Request,
     session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
-    """Post a comment back to the upstream issue.
-
-    Phase-1 returns 202 and lets the worker do the provider call; the
-    audit row's `action_status` starts as `queued` and the worker flips
-    it to `completed` or `failed`. We don't synchronously talk to the
-    provider here so a ratelimited GitHub doesn't take down the API.
-    """
     issues_repo = IssuesRepository(session)
     issue = await issues_repo.get_issue(issue_id)
     if issue is None:
@@ -343,9 +310,6 @@ async def comment_on_issue(
 
     queue = getattr(request.app.state, "queue", None)
     if queue is not None:
-        # The worker job that dispatches comments lands with Phase-2; for
-        # now the row exists and a future operator-console replay will
-        # reissue it. Surfaced explicitly to the caller in `pending`.
         await queue.enqueue_job(
             "post_external_issue_comment", str(action.id)
         )
@@ -359,12 +323,6 @@ async def suppress_issue(
     body: SuppressRequest,
     session: AsyncSession = Depends(_session),
 ) -> dict[str, Any]:
-    """Suppress an issue from the dashboard.
-
-    Doesn't touch the provider. Sets `repairable=False` on the row so
-    the run-repair endpoint also rejects it, and writes a SUPPRESS
-    audit row carrying the operator-supplied reason.
-    """
     issues_repo = IssuesRepository(session)
     issue = await issues_repo.get_issue(issue_id)
     if issue is None:

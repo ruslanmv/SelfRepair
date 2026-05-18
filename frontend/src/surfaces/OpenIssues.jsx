@@ -1,25 +1,33 @@
 import React from "react";
 
-import { Icon, Pill, RepoIcon, SeverityDot, StateBadge } from "../components/atoms.jsx";
-import { SR_DATA as D } from "../data/mock.js";
-
-// Open Issues — human-created issues from GitHub, GitLab, and Hugging Face.
-// Distinct from Findings (internal scanner output) and Repairs (internal jobs).
-// Mirrors Findings/Repos in layout: KPI strip → filters → table → row actions.
-// All actions are mock-only in the UI MVP; the backend `/v1/issues` surface
-// lands in Batch 2 and 3.
+import {
+  Icon,
+  Pill,
+  RepoIcon,
+  SeverityDot,
+  StateBadge,
+} from "../components/atoms.jsx";
+import {
+  useIssues,
+  useRunRepairFromIssue,
+  useSyncIssues,
+} from "../hooks/useIssues.js";
 
 const PROVIDERS = [
-  { id: "all", label: "All" },
-  { id: "github", label: "GitHub", icon: "github" },
+  { id: undefined, label: "All" },
+  { id: "github", label: "GitHub" },
   { id: "gitlab", label: "GitLab" },
   { id: "huggingface", label: "Hugging Face" },
 ];
 
-const PRIORITY_LEVELS = ["all", "critical", "high", "medium", "low"];
+const PRIORITIES = [
+  { id: undefined, label: "All priorities" },
+  { id: "critical", label: "critical" },
+  { id: "high", label: "high" },
+  { id: "medium", label: "medium" },
+  { id: "low", label: "low" },
+];
 
-// Map repair classes onto the same Pill tones the rest of the app uses so
-// "repairable" classes line up visually with the green ones in Findings.
 const CLASS_TONE = {
   documentation: "ok",
   dependency: "ok",
@@ -32,15 +40,23 @@ const CLASS_TONE = {
   unknown: "neutral",
 };
 
-const formatClass = (cls) => cls.replace(/_/g, " ");
+function normaliseState(s) {
+  return s === "opened" ? "open" : s;
+}
 
-// "opened" is GitLab's vocabulary for what GitHub calls "open"; normalise so
-// the StateBadge component (built around GitHub's open/closed) renders cleanly.
-const normaliseState = (state) => (state === "opened" ? "open" : state);
+function sevForPriority(p) {
+  if (p === "critical") return "critical";
+  if (p === "high") return "high";
+  if (p === "medium") return "medium";
+  return "low";
+}
 
 const KpiCard = ({ label, value, hint, tone = "info" }) => (
   <div className="card" style={{ padding: 14, minWidth: 180 }}>
-    <div className="muted" style={{ fontSize: "var(--t-12)", letterSpacing: "0.02em" }}>
+    <div
+      className="muted"
+      style={{ fontSize: "var(--t-12)", letterSpacing: "0.02em" }}
+    >
       {label}
     </div>
     <div
@@ -49,7 +65,10 @@ const KpiCard = ({ label, value, hint, tone = "info" }) => (
     >
       <span style={{ fontSize: "var(--t-22)", fontWeight: 600 }}>{value}</span>
       {hint && (
-        <span className={`pill pill-${tone}`} style={{ height: 18, fontSize: 10.5 }}>
+        <span
+          className={`pill pill-${tone}`}
+          style={{ height: 18, fontSize: 10.5 }}
+        >
           {hint}
         </span>
       )}
@@ -59,44 +78,67 @@ const KpiCard = ({ label, value, hint, tone = "info" }) => (
 
 export const OpenIssues = ({ onOpenRun }) => {
   const [q, setQ] = React.useState("");
-  const [provider, setProvider] = React.useState("all");
-  const [priority, setPriority] = React.useState("all");
+  const [provider, setProvider] = React.useState(undefined);
+  const [priority, setPriority] = React.useState(undefined);
   const [onlyRepairable, setOnlyRepairable] = React.useState(false);
+  const params = {
+    provider,
+    priority,
+    repairable: onlyRepairable ? true : undefined,
+    limit: 200,
+  };
+  const { data, isLoading, isError, error } = useIssues(params);
+  const sync = useSyncIssues();
+  const runRepair = useRunRepairFromIssue();
 
-  const filtered = D.externalIssues.filter((i) => {
-    if (q) {
-      const lq = q.toLowerCase();
-      const haystack = `${i.title} ${i.repo} ${i.author} ${i.labels.join(" ")}`.toLowerCase();
-      if (!haystack.includes(lq)) return false;
-    }
-    if (provider !== "all" && i.provider !== provider) return false;
-    if (priority !== "all" && i.priority !== priority) return false;
-    if (onlyRepairable && !i.repairable) return false;
-    return true;
+  const items = (data?.items || []).filter((i) => {
+    if (!q) return true;
+    const lq = q.toLowerCase();
+    const labels = (i.labels || []).join(" ");
+    const haystack = `${i.title} ${i.author || ""} ${labels}`.toLowerCase();
+    return haystack.includes(lq);
   });
+
+  const kpis = {
+    open: items.filter((i) => normaliseState(i.state) === "open").length,
+    high: items.filter((i) =>
+      ["high", "critical"].includes(i.priority),
+    ).length,
+    repairable: items.filter((i) => i.repairable).length,
+  };
 
   return (
     <div className="page-fade" style={{ padding: "16px 20px" }}>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+      <div
+        className="row"
+        style={{ justifyContent: "space-between", marginBottom: 12 }}
+      >
         <div>
-          <h1 style={{ margin: 0, fontSize: "var(--t-24)", letterSpacing: "-0.01em", fontWeight: 600 }}>
+          <h1
+            style={{ margin: 0, fontSize: "var(--t-24)", fontWeight: 600 }}
+          >
             Open Issues
           </h1>
-          <p className="muted" style={{ margin: "2px 0 0", fontSize: "var(--t-13)" }}>
-            Human-created GitHub, GitLab, and Hugging Face issues across connected repos
+          <p
+            className="muted"
+            style={{ margin: "2px 0 0", fontSize: "var(--t-13)" }}
+          >
+            Human-created GitHub, GitLab, and Hugging Face issues.
           </p>
         </div>
         <div className="row gap-2">
-          <button className="btn">
-            <Icon name="filter" s={13} /> Saved views
-          </button>
-          <button className="btn">
-            <Icon name="repos" s={13} /> Sync now
+          <button
+            className="btn"
+            onClick={() => sync.mutate({})}
+            disabled={sync.isPending}
+            title="Re-sync external issue providers"
+          >
+            <Icon name="repos" s={13} />
+            {sync.isPending ? " Syncing…" : " Sync now"}
           </button>
           <button
             className="btn btn-primary"
             onClick={() => onOpenRun && onOpenRun(null)}
-            title="Run repair from a selected issue"
           >
             <Icon name="play" s={12} /> Run repair from issue
           </button>
@@ -107,33 +149,35 @@ export const OpenIssues = ({ onOpenRun }) => {
         className="row gap-2"
         style={{ marginBottom: 12, flexWrap: "wrap" }}
       >
-        <KpiCard label="Open issues" value={D.issueKpis.open} hint="across 4 repos" tone="info" />
+        <KpiCard label="Open issues" value={kpis.open} tone="info" />
         <KpiCard
           label="High priority"
-          value={D.issueKpis.highPriority}
+          value={kpis.high}
           hint="needs attention"
           tone="warn"
         />
         <KpiCard
           label="Repairable"
-          value={D.issueKpis.repairable}
+          value={kpis.repairable}
           hint="auto-fix candidates"
           tone="ok"
         />
-        <KpiCard
-          label="Repairs started"
-          value={D.issueKpis.repairsStarted}
-          hint="from issues"
-          tone="info"
-        />
       </div>
 
-      <div className="row gap-2" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+      <div
+        className="row gap-2"
+        style={{ marginBottom: 10, flexWrap: "wrap" }}
+      >
         <div style={{ position: "relative" }}>
           <Icon
             name="search"
             s={13}
-            style={{ position: "absolute", left: 9, top: 8, color: "var(--fg-faint)" }}
+            style={{
+              position: "absolute",
+              left: 9,
+              top: 8,
+              color: "var(--fg-faint)",
+            }}
           />
           <input
             className="input"
@@ -143,224 +187,181 @@ export const OpenIssues = ({ onOpenRun }) => {
             style={{ paddingLeft: 28, width: 280 }}
           />
         </div>
-
         {PROVIDERS.map((p) => (
           <span
-            key={p.id}
+            key={p.label}
             className={`chip ${provider === p.id ? "is-active" : ""}`}
             onClick={() => setProvider(p.id)}
           >
-            {p.id === "github" && <Icon name="github" s={12} />}
-            {p.id === "gitlab" && <span style={{ color: "#FC6D26" }}>●</span>}
-            {p.id === "huggingface" && <span>🤗</span>}
             {p.label}
           </span>
         ))}
-
         <span
-          style={{ width: 1, alignSelf: "stretch", background: "var(--hairline)" }}
+          style={{
+            width: 1,
+            alignSelf: "stretch",
+            background: "var(--hairline)",
+          }}
         />
-
-        {PRIORITY_LEVELS.map((p) => (
+        {PRIORITIES.map((p) => (
           <span
-            key={p}
-            className={`chip ${priority === p ? "is-active" : ""}`}
-            onClick={() => setPriority(p)}
-            style={{ textTransform: "capitalize" }}
+            key={p.label}
+            className={`chip ${priority === p.id ? "is-active" : ""}`}
+            onClick={() => setPriority(p.id)}
           >
-            {p === "all" ? "All priorities" : p}
+            {p.label}
           </span>
         ))}
-
         <span
           className={`chip ${onlyRepairable ? "is-active" : ""}`}
           onClick={() => setOnlyRepairable((v) => !v)}
         >
-          ✓ Repairable only
+          Repairable only
         </span>
-
         <span className="grow" />
         <span className="muted" style={{ fontSize: "var(--t-12)" }}>
-          {filtered.length} matched
+          {items.length} matched
         </span>
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th style={{ width: 32 }}>
-                <input type="checkbox" />
-              </th>
-              <th style={{ width: 32 }}>Sev</th>
-              <th>Issue</th>
-              <th style={{ width: 200 }}>Repo</th>
-              <th style={{ width: 140 }}>Class</th>
-              <th style={{ width: 160 }}>Labels</th>
-              <th style={{ width: 110 }}>Author</th>
-              <th style={{ width: 110 }}>State</th>
-              <th style={{ width: 100 }}>Updated</th>
-              <th style={{ width: 130 }}>Linked</th>
-              <th style={{ width: 240 }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((i) => (
-              <tr key={i.id}>
-                <td>
-                  <input type="checkbox" onClick={(e) => e.stopPropagation()} />
-                </td>
-                <td>
-                  <SeverityDot
-                    level={
-                      i.priority === "critical"
-                        ? "critical"
-                        : i.priority === "high"
-                        ? "high"
-                        : i.priority === "medium"
-                        ? "medium"
-                        : "low"
-                    }
-                  />
-                </td>
-                <td>
-                  <div className="col">
-                    <span style={{ fontWeight: 500 }}>
-                      <span className="faint mono" style={{ marginRight: 6 }}>
-                        #{i.number}
-                      </span>
-                      {i.title}
-                    </span>
-                    <span
-                      className="faint"
-                      style={{ fontSize: "var(--t-12)", marginTop: 2 }}
-                    >
-                      {i.bodyExcerpt}
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <div className="row gap-2">
-                    <RepoIcon platform={i.provider} s={13} />
-                    <span className="muted" style={{ fontSize: "var(--t-13)" }}>
-                      {i.repo}
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <Pill tone={CLASS_TONE[i.repairClass] || "neutral"}>
-                    {formatClass(i.repairClass)}
-                  </Pill>
-                </td>
-                <td>
-                  <div className="row gap-2" style={{ flexWrap: "wrap" }}>
-                    {i.labels.slice(0, 2).map((l) => (
-                      <span
-                        key={l}
-                        className="pill"
-                        style={{ height: 18, fontSize: 10.5 }}
-                      >
-                        {l}
-                      </span>
-                    ))}
-                    {i.labels.length > 2 && (
-                      <span
-                        className="faint mono"
-                        style={{ fontSize: 10.5 }}
-                        title={i.labels.slice(2).join(", ")}
-                      >
-                        +{i.labels.length - 2}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="muted" style={{ fontSize: "var(--t-12)" }}>
-                  {i.author}
-                </td>
-                <td>
-                  <StateBadge state={normaliseState(i.state)} />
-                </td>
-                <td className="muted" style={{ fontSize: "var(--t-12)" }}>
-                  {i.updated}
-                </td>
-                <td>
-                  {i.repairJobId ? (
-                    <span
-                      className="mono"
-                      style={{ fontSize: "var(--t-12)", color: "var(--brand)" }}
-                    >
-                      {i.repairJobId}
-                    </span>
-                  ) : (
-                    <span className="faint mono" style={{ fontSize: "var(--t-12)" }}>
-                      —
-                    </span>
-                  )}
-                </td>
-                <td>
-                  <div className="row gap-2">
-                    <a
-                      className="btn btn-sm"
-                      href={i.externalUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open on provider"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Icon name="external" s={11} /> Open
-                    </a>
-                    {i.repairable ? (
-                      <button
-                        className="btn btn-sm btn-primary"
-                        title="Run a SelfRepair job from this issue"
-                        onClick={() => onOpenRun && onOpenRun(i.repo)}
-                      >
-                        <Icon name="play" s={11} /> Run repair
-                      </button>
-                    ) : (
-                      <button
-                        className="btn btn-sm"
-                        title={
-                          i.repairClass === "security"
-                            ? "Security issues are escalation-only"
-                            : "Manual triage required"
-                        }
-                        disabled
-                      >
-                        <Icon name="shield" s={11} /> Triage
-                      </button>
-                    )}
-                  </div>
-                </td>
+        {isLoading && (
+          <div className="muted" style={{ padding: 16 }}>Loading…</div>
+        )}
+        {isError && (
+          <div
+            className="muted"
+            style={{ padding: 16, color: "var(--danger)" }}
+          >
+            {error?.detail || "Could not load issues"}
+          </div>
+        )}
+        {!isLoading && !isError && items.length === 0 && (
+          <div className="muted" style={{ padding: 16 }}>
+            No issues match these filters.
+          </div>
+        )}
+        {items.length > 0 && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th style={{ width: 28 }}>Sev</th>
+                <th>Issue</th>
+                <th style={{ width: 110 }}>Provider</th>
+                <th style={{ width: 140 }}>Class</th>
+                <th style={{ width: 160 }}>Labels</th>
+                <th style={{ width: 110 }}>Author</th>
+                <th style={{ width: 110 }}>State</th>
+                <th style={{ width: 130 }}>Updated</th>
+                <th style={{ width: 240 }}>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div
-        className="row"
-        style={{
-          marginTop: 10,
-          justifyContent: "space-between",
-          fontSize: "var(--t-12)",
-          color: "var(--fg-muted)",
-        }}
-      >
-        <span>
-          Showing {filtered.length} of {D.externalIssues.length} synced ·
-          last sync 2m ago
-        </span>
-        <div className="row gap-2">
-          <span className="muted">Source:</span>
-          <span className="chip">
-            <Icon name="github" s={11} /> GitHub Issues
-          </span>
-          <span className="chip" style={{ color: "#FC6D26" }}>
-            ● GitLab Issues
-          </span>
-          <span className="chip">🤗 HF Discussions</span>
-        </div>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.id}>
+                  <td>
+                    <SeverityDot level={sevForPriority(i.priority)} />
+                  </td>
+                  <td>
+                    <div className="col">
+                      <span style={{ fontWeight: 500 }}>
+                        <span
+                          className="faint mono"
+                          style={{ marginRight: 6 }}
+                        >
+                          #{i.number}
+                        </span>
+                        {i.title}
+                      </span>
+                      {i.body_excerpt && (
+                        <span
+                          className="faint"
+                          style={{ fontSize: "var(--t-12)", marginTop: 2 }}
+                        >
+                          {i.body_excerpt}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="row gap-2">
+                      <RepoIcon platform={i.provider} s={13} />
+                      <span className="muted" style={{ fontSize: "var(--t-12)" }}>
+                        {i.provider}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <Pill tone={CLASS_TONE[i.repair_class] || "neutral"}>
+                      {(i.repair_class || "unknown").replace(/_/g, " ")}
+                    </Pill>
+                  </td>
+                  <td>
+                    <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+                      {(i.labels || []).slice(0, 2).map((l) => (
+                        <span
+                          key={l}
+                          className="pill"
+                          style={{ height: 18, fontSize: 10.5 }}
+                        >
+                          {l}
+                        </span>
+                      ))}
+                      {(i.labels || []).length > 2 && (
+                        <span
+                          className="faint mono"
+                          style={{ fontSize: 10.5 }}
+                          title={(i.labels || []).slice(2).join(", ")}
+                        >
+                          +{i.labels.length - 2}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="muted" style={{ fontSize: "var(--t-12)" }}>
+                    {i.author || "—"}
+                  </td>
+                  <td>
+                    <StateBadge state={normaliseState(i.state)} />
+                  </td>
+                  <td className="muted" style={{ fontSize: "var(--t-12)" }}>
+                    {i.updated_at_external
+                      ? new Date(i.updated_at_external).toLocaleString()
+                      : "—"}
+                  </td>
+                  <td>
+                    <div className="row gap-2">
+                      <a
+                        className="btn btn-sm"
+                        href={i.html_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Icon name="external" s={11} /> Open
+                      </a>
+                      {i.repairable ? (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() =>
+                            runRepair.mutate({ id: i.id, body: {} })
+                          }
+                          disabled={runRepair.isPending}
+                        >
+                          <Icon name="play" s={11} /> Run repair
+                        </button>
+                      ) : (
+                        <button className="btn btn-sm" disabled>
+                          <Icon name="shield" s={11} /> Triage
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
