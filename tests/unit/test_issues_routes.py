@@ -116,11 +116,23 @@ class TestListIssues:
         assert item["repairable"] is True
         assert item["labels"] == ["bug", "ci"]
 
-    def test_org_id_is_required(self, fake_repo) -> None:
-        _issues, _jobs, app = fake_repo
+    def test_org_id_resolved_from_session_or_header(self, fake_repo) -> None:
+        """The list endpoint no longer takes org_id as a query parameter.
+
+        Org scope is sourced from `CtxDep` (cookie session in production,
+        `X-SelfRepair-Org-Id` header / `SELFREPAIR_DEV_ORG_ID` env in dev).
+        With no header set, the dev-default org is used and the request
+        succeeds — the contract is "org always known", not "org always
+        explicit in the URL".
+        """
+        issues_repo, _jobs, app = fake_repo
+        issues_repo.list_issues.return_value = []
         client = TestClient(app)
         resp = client.get("/v1/issues")
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        # Repository was called with the dev-default org from CtxDep.
+        kwargs = issues_repo.list_issues.call_args.kwargs
+        assert kwargs["org_id"] is not None
 
     def test_filters_pass_through(self, fake_repo) -> None:
         issues_repo, _jobs, app = fake_repo

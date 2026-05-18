@@ -1,0 +1,148 @@
+import React from "react";
+
+import { useLogin } from "../hooks/useSession.js";
+
+const inputStyle = {
+  width: "100%",
+  padding: "9px 10px",
+  border: "1px solid var(--border, #2a2f3a)",
+  borderRadius: 6,
+  background: "var(--bg-elev, #11141a)",
+  color: "var(--fg, #e6e8ee)",
+  fontSize: 14,
+  outline: "none",
+};
+
+export function Login({ onLoggedIn }) {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [orgId, setOrgId] = React.useState("");
+  const login = useLogin();
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await login.mutateAsync({
+        email,
+        password,
+        ...(orgId ? { org_id: orgId } : {}),
+      });
+      onLoggedIn?.();
+    } catch {
+      // Surfaced via login.error below; nothing to do here.
+    }
+  };
+
+  const errorDetail =
+    login.isError && (login.error?.detail || login.error?.message);
+
+  return (
+    <div
+      className="page-fade"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 40,
+        minHeight: "calc(100vh - 80px)",
+      }}
+    >
+      <form
+        onSubmit={submit}
+        className="card"
+        style={{ width: 380, padding: 28 }}
+      >
+        <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600 }}>
+          Sign in
+        </h1>
+        <p
+          className="muted"
+          style={{ margin: "0 0 18px", fontSize: 13 }}
+        >
+          SelfRepair Console
+        </p>
+
+        <label
+          style={{ display: "block", fontSize: 12, marginBottom: 6 }}
+        >
+          Email
+        </label>
+        <input
+          type="email"
+          autoFocus
+          required
+          autoComplete="username"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={inputStyle}
+        />
+
+        <label
+          style={{
+            display: "block",
+            fontSize: 12,
+            margin: "12px 0 6px",
+          }}
+        >
+          Password
+        </label>
+        <input
+          type="password"
+          required
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          style={inputStyle}
+        />
+
+        <details style={{ marginTop: 12 }}>
+          <summary
+            className="muted"
+            style={{ fontSize: 12, cursor: "pointer" }}
+          >
+            Multiple organisations? Specify org id
+          </summary>
+          <input
+            type="text"
+            value={orgId}
+            placeholder="00000000-0000-0000-0000-000000000001"
+            onChange={(e) => setOrgId(e.target.value)}
+            style={{ ...inputStyle, marginTop: 8 }}
+          />
+        </details>
+
+        {errorDetail && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 14,
+              padding: "8px 10px",
+              borderRadius: 6,
+              background: "rgba(220, 50, 70, 0.12)",
+              color: "var(--danger, #f06d75)",
+              fontSize: 13,
+            }}
+          >
+            {String(errorDetail)}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={login.isPending}
+          style={{ marginTop: 18, width: "100%" }}
+        >
+          {login.isPending ? "Signing in…" : "Sign in"}
+        </button>
+
+        <p
+          className="muted"
+          style={{ margin: "14px 0 0", fontSize: 12, textAlign: "center" }}
+        >
+          Forgot your password? Ask an org admin to reset it.
+        </p>
+      </form>
+    </div>
+  );
+}

@@ -3,20 +3,24 @@ import React from "react";
 import { Icon } from "./components/atoms.jsx";
 import { CommandPalette, Sidebar, Topbar } from "./components/Shell.jsx";
 import { ACCENT_MAP, TweaksPanel, useTweaks } from "./components/TweaksPanel.jsx";
-import { SR_DATA } from "./data/mock.js";
 import { AuditLogDrawer } from "./features/AuditLogDrawer.jsx";
 import { AutoRepairModal } from "./features/AutoRepairModal.jsx";
 import { ChatDock, ChatToggle } from "./features/ChatDock.jsx";
 import { RunRepairModal } from "./features/RunRepairModal.jsx";
+import { useLogout } from "./hooks/useSession.js";
+import { AuditLog } from "./surfaces/AuditLog.jsx";
 import { Findings } from "./surfaces/Findings.jsx";
 import { JobDetail } from "./surfaces/JobDetail.jsx";
 import { Jobs } from "./surfaces/Jobs.jsx";
+import { Login } from "./surfaces/Login.jsx";
 import { OpenIssues } from "./surfaces/OpenIssues.jsx";
 import { Overview } from "./surfaces/Overview.jsx";
+import { Policies } from "./surfaces/Policies.jsx";
 import { RepairDetail } from "./surfaces/RepairDetail.jsx";
 import { Repairs } from "./surfaces/Repairs.jsx";
 import { RepoDetail } from "./surfaces/RepoDetail.jsx";
 import { Repos } from "./surfaces/Repos.jsx";
+import { Settings } from "./surfaces/Settings.jsx";
 import { StubPage } from "./surfaces/StubPage.jsx";
 
 export default function App() {
@@ -27,13 +31,14 @@ export default function App() {
   const [runOpen, setRunOpen] = React.useState(false);
   const [runTarget, setRunTarget] = React.useState(null);
   const [auditOpen, setAuditOpen] = React.useState(false);
-  const [auditScope, setAuditScope] = React.useState({ scope: "job", scopeId: "J-77821" });
+  const [auditScope, setAuditScope] = React.useState({ scope: "job", scopeId: "" });
   const [chatOpen, setChatOpen] = React.useState(false);
   const [autoOpen, setAutoOpen] = React.useState(false);
   const [autoActive, setAutoActive] = React.useState(false);
   const [autoCount, setAutoCount] = React.useState(0);
 
-  // Apply tweaks to root.
+  const logoutMutation = useLogout();
+
   React.useEffect(() => {
     const root = document.documentElement;
     root.setAttribute("data-theme", tweaks.theme);
@@ -44,7 +49,6 @@ export default function App() {
     root.style.setProperty("--grad-brand", a.grad);
   }, [tweaks]);
 
-  // Cmd/Ctrl+K opens / toggles the command palette.
   React.useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -72,6 +76,9 @@ export default function App() {
     navigate(item.route, item.payload);
   };
 
+  const shortId = (s) =>
+    typeof s === "string" && s.length > 8 ? s.slice(0, 8) : s || "";
+
   const crumbs = (() => {
     const home = { label: "Fleet", onClick: () => navigate("overview") };
     if (route.name === "overview") return [home, { label: "Overview" }];
@@ -80,7 +87,7 @@ export default function App() {
       return [
         home,
         { label: "Repos", onClick: () => navigate("repos") },
-        { label: SR_DATA.repos.find((r) => r.id === route.payload)?.name || "Repo" },
+        { label: shortId(route.payload) || "Repo" },
       ];
     if (route.name === "findings") return [home, { label: "Findings" }];
     if (route.name === "issues") return [home, { label: "Open Issues" }];
@@ -89,18 +96,19 @@ export default function App() {
       return [
         home,
         { label: "Repairs", onClick: () => navigate("repairs") },
-        { label: route.payload || "PR-2210" },
+        { label: shortId(route.payload) || "Repair" },
       ];
     if (route.name === "jobs") return [home, { label: "Jobs" }];
     if (route.name === "job")
       return [
         home,
         { label: "Jobs", onClick: () => navigate("jobs") },
-        { label: route.payload || "J-77821" },
+        { label: shortId(route.payload) || "Job" },
       ];
     if (route.name === "policies") return [home, { label: "Policies" }];
     if (route.name === "audit") return [home, { label: "Audit log" }];
     if (route.name === "settings") return [home, { label: "Settings" }];
+    if (route.name === "login") return [home, { label: "Sign in" }];
     if (route.name === "about") return [home, { label: "About" }];
     if (route.name === "help") return [home, { label: "Help" }];
     return [home];
@@ -125,27 +133,26 @@ export default function App() {
     }[route.name] || "overview";
 
   const chatScope = (() => {
-    if (route.name === "findings") return { scope: "findings", label: "Findings (342 open)" };
-    if (route.name === "issues") return { scope: "issues", label: "Open Issues (7 synced)" };
+    if (route.name === "findings") return { scope: "findings", label: "Findings" };
+    if (route.name === "issues") return { scope: "issues", label: "Open Issues" };
     if (route.name === "repair" || route.name === "repairs")
       return {
         scope: "repairs",
-        label: route.name === "repair" ? `Repair ${route.payload}` : "Repairs queue",
+        label: route.name === "repair" ? `Repair ${shortId(route.payload)}` : "Repairs queue",
       };
     if (route.name === "job" || route.name === "jobs")
       return {
         scope: "jobs",
-        label: route.name === "job" ? `Job ${route.payload}` : "Jobs",
+        label: route.name === "job" ? `Job ${shortId(route.payload)}` : "Jobs",
       };
     if (route.name === "repo")
       return {
         scope: "default",
-        label: SR_DATA.repos.find((r) => r.id === route.payload)?.name || "Repo",
+        label: shortId(route.payload) || "Repo",
       };
     return { scope: "default", label: "Fleet" };
   })();
 
-  // Reset chat on navigation when scoped-per-page is enabled.
   React.useEffect(() => {
     if (tweaks.chatScopedToPage) setChatOpen(false);
   }, [route.name, tweaks.chatScopedToPage]);
@@ -159,7 +166,7 @@ export default function App() {
       case "repo":
         return (
           <RepoDetail
-            repoId={route.payload || "R-1045"}
+            repoId={route.payload}
             onNav={navigate}
             onOpenAudit={openAudit}
             onOpenRun={openRun}
@@ -180,7 +187,7 @@ export default function App() {
       case "repair":
         return (
           <RepairDetail
-            repairId={route.payload || "PR-2210"}
+            repairId={route.payload}
             onNav={navigate}
             onOpenAudit={openAudit}
           />
@@ -190,22 +197,19 @@ export default function App() {
       case "job":
         return (
           <JobDetail
-            jobId={route.payload || "J-77821"}
+            jobId={route.payload}
             onNav={navigate}
             onOpenAudit={openAudit}
           />
         );
       case "policies":
-        return <StubPage title="Policies" subtitle="OPA bundles · auto-fix templates · approval rules" />;
+        return <Policies />;
       case "audit":
-        return (
-          <StubPage
-            title="Audit log"
-            subtitle="Tamper-evident · Sigstore-attested · 30-day hot retention"
-          />
-        );
+        return <AuditLog />;
       case "settings":
-        return <StubPage title="Settings" subtitle="Workspace · members · integrations · billing" />;
+        return <Settings />;
+      case "login":
+        return <Login onLoggedIn={() => navigate("overview")} />;
       case "about":
         return (
           <StubPage
@@ -262,16 +266,18 @@ export default function App() {
       <Sidebar
         route={sidebarKey}
         onNav={navigate}
-        onAccountAction={(action) => {
-          // Single-user app — Settings/About/Help just navigate. Logout is a
-          // placeholder confirm; full auth flow lands when SSO/SCIM does.
+        onAccountAction={async (action) => {
           if (action === "settings") navigate("settings");
           else if (action === "about") navigate("about");
           else if (action === "help") navigate("help");
           else if (action === "logout") {
             if (window.confirm("Sign out of the SelfRepair console?")) {
-              // Future: clear session token and bounce to /login.
-              window.location.reload();
+              try {
+                await logoutMutation.mutateAsync();
+              } catch {
+                // Best-effort; cookie/network glitches shouldn't block the UI.
+              }
+              navigate("login");
             }
           }
         }}

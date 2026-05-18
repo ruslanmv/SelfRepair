@@ -1,9 +1,72 @@
-import { HealthBar, Icon, Pill, Sparkline } from "../components/atoms.jsx";
-import { SR_DATA as D } from "../data/mock.js";
+import { Icon, Pill, Sparkline } from "../components/atoms.jsx";
+import { spark } from "../data/mock.js";
+import { useDashboard } from "../hooks/useDashboard.js";
+
+function percent(rate) {
+  if (rate === null || rate === undefined || Number.isNaN(rate)) return "—";
+  return `${(Number(rate) * 100).toFixed(1)}%`;
+}
+
+function formatSeconds(s) {
+  if (s === null || s === undefined) return "—";
+  const sec = Math.round(Number(s));
+  const m = Math.floor(sec / 60);
+  const ss = sec % 60;
+  if (m === 0) return `${ss}s`;
+  return `${m}m ${ss}s`;
+}
+
+function money(v) {
+  if (v === null || v === undefined) return "$0";
+  return `$${Number(v).toFixed(2)}`;
+}
+
+function bandTone(band) {
+  if (band === "90-100") return "ok";
+  if (band === "70-89") return "info";
+  if (band === "50-69") return "warn";
+  return "danger";
+}
 
 export const Overview = ({ onNav, showHeroGradient = true }) => {
-  const k = D.dashboard.kpis;
-  const totalFleet = D.dashboard.fleetHealth.reduce((a, b) => a + b.count, 0);
+  const { data, isLoading, isError, error } = useDashboard();
+  const kpis = data?.kpis || {};
+  const fleet = data?.fleet_health || [];
+  const cost = data?.repair_cost || {};
+  const activity = data?.activity || [];
+  const awaiting = data?.awaiting_approval || [];
+  const totalFleet = fleet.reduce((a, b) => a + (b.count || 0), 0);
+
+  const cards = [
+    {
+      label: "Repos under management",
+      value: kpis.repos_total ?? "—",
+      delta: "",
+      series: spark(3),
+      tone: "info",
+    },
+    {
+      label: "Open findings",
+      value: kpis.open_findings ?? "—",
+      delta: "",
+      series: spark(7),
+      tone: "warn",
+    },
+    {
+      label: "Auto-fix success rate",
+      value: percent(kpis.auto_fix_success_rate),
+      delta: `${kpis.sample_size ?? 0} sample`,
+      series: spark(11),
+      tone: "ok",
+    },
+    {
+      label: "Mean time to repair",
+      value: formatSeconds(kpis.mttr_seconds_avg),
+      delta: "",
+      series: spark(15),
+      tone: "ok",
+    },
+  ];
 
   return (
     <div className="page-fade" style={{ padding: 20, position: "relative" }}>
@@ -27,10 +90,12 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
         >
           <div>
             <div className="row gap-2" style={{ marginBottom: 6 }}>
-              <span className="live">live · 2 jobs running</span>
-              <span className="faint" style={{ fontSize: "var(--t-12)" }}>
-                · last sync 14s ago
-              </span>
+              <span className="live">live · dashboard</span>
+              {isError && (
+                <span className="pill pill-danger" style={{ fontSize: 11 }}>
+                  {error?.detail || "refresh failed"}
+                </span>
+              )}
             </div>
             <h1
               style={{
@@ -43,14 +108,14 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
               Fleet overview
             </h1>
             <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--t-14)" }}>
-              1,284 repos under management · 4 platforms · 38 active policies
+              {kpis.repos_total ?? 0} repos under management
             </p>
           </div>
           <div className="row gap-2">
             <button className="btn">
               <Icon name="retry" s={13} /> Refresh
             </button>
-            <button className="btn btn-primary">
+            <button className="btn btn-primary" onClick={() => onNav("repos")}>
               <Icon name="plus" s={13} /> Connect repo
             </button>
           </div>
@@ -65,16 +130,9 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
             marginBottom: 18,
           }}
         >
-          {k.map((kpi, i) => (
-            <div
-              key={i}
-              className="card"
-              style={{ padding: 14, position: "relative", overflow: "hidden" }}
-            >
-              <div
-                className="row"
-                style={{ justifyContent: "space-between", marginBottom: 6 }}
-              >
+          {cards.map((kpi, i) => (
+            <div key={i} className="card" style={{ padding: 14, position: "relative", overflow: "hidden" }}>
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
                 <span
                   className="muted"
                   style={{
@@ -86,43 +144,21 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
                   {kpi.label}
                 </span>
               </div>
-              <div
-                className="row"
-                style={{ alignItems: "flex-end", justifyContent: "space-between", gap: 10 }}
-              >
+              <div className="row" style={{ alignItems: "flex-end", justifyContent: "space-between", gap: 10 }}>
                 <div className="col" style={{ gap: 2 }}>
-                  <span
-                    style={{
-                      fontSize: "var(--t-32)",
-                      fontWeight: 600,
-                      letterSpacing: "-0.02em",
-                      lineHeight: 1,
-                    }}
-                  >
-                    {kpi.value}
+                  <span style={{ fontSize: "var(--t-32)", fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1 }}>
+                    {isLoading ? "…" : kpi.value}
                   </span>
-                  <span
-                    style={{
-                      fontSize: "var(--t-12)",
-                      color:
-                        kpi.tone === "ok"
-                          ? "var(--ok)"
-                          : kpi.tone === "warn"
-                            ? "var(--warn)"
-                            : "var(--fg-muted)",
-                    }}
-                  >
-                    {kpi.delta}
-                  </span>
+                  {kpi.delta && (
+                    <span style={{ fontSize: "var(--t-12)", color: "var(--fg-muted)" }}>{kpi.delta}</span>
+                  )}
                 </div>
                 <div
                   style={{
                     color:
-                      kpi.tone === "ok"
-                        ? "var(--ok)"
-                        : kpi.tone === "warn"
-                          ? "var(--warn)"
-                          : "var(--cyan)",
+                      kpi.tone === "ok" ? "var(--ok)" :
+                      kpi.tone === "warn" ? "var(--warn)" :
+                      "var(--cyan)",
                   }}
                 >
                   <Sparkline data={kpi.series} w={96} h={32} fill />
@@ -144,88 +180,39 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
           <div className="card" style={{ padding: 14 }}>
             <div className="h-section">
               <h2>Fleet health distribution</h2>
-              <span className="faint" style={{ fontSize: "var(--t-12)" }}>
-                {totalFleet} repos
-              </span>
+              <span className="faint" style={{ fontSize: "var(--t-12)" }}>{totalFleet} repos</span>
             </div>
             <div className="col gap-3" style={{ marginTop: 12 }}>
-              {D.dashboard.fleetHealth.map((b, i) => {
-                const pct = (b.count / totalFleet) * 100;
+              {fleet.map((b, i) => {
+                const pct = totalFleet ? (b.count / totalFleet) * 100 : 0;
+                const tone = bandTone(b.band);
                 const color =
-                  b.tone === "ok"
-                    ? "var(--ok)"
-                    : b.tone === "warn"
-                      ? "var(--warn)"
-                      : b.tone === "danger"
-                        ? "var(--danger)"
-                        : "var(--info)";
+                  tone === "ok" ? "var(--ok)" :
+                  tone === "info" ? "var(--info)" :
+                  tone === "warn" ? "var(--warn)" : "var(--danger)";
                 return (
                   <div key={i} className="row gap-3">
-                    <span
-                      className="mono muted"
-                      style={{ width: 56, fontSize: "var(--t-12)" }}
-                    >
-                      {b.band}
-                    </span>
-                    <div
-                      style={{
-                        flex: 1,
-                        height: 14,
-                        background: "var(--bg-elev-2)",
-                        borderRadius: 4,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${pct}%`,
-                          height: "100%",
-                          background: color,
-                          opacity: 0.85,
-                          borderRadius: 4,
-                        }}
-                      />
+                    <span className="mono muted" style={{ width: 56, fontSize: "var(--t-12)" }}>{b.band}</span>
+                    <div style={{ flex: 1, height: 14, background: "var(--bg-elev-2)", borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: color, opacity: 0.85, borderRadius: 4 }} />
                     </div>
-                    <span
-                      className="mono"
-                      style={{ width: 50, textAlign: "right", color }}
-                    >
-                      {b.count}
-                    </span>
-                    <span
-                      className="faint mono"
-                      style={{ width: 40, textAlign: "right", fontSize: "var(--t-12)" }}
-                    >
-                      {pct.toFixed(0)}%
-                    </span>
+                    <span className="mono" style={{ width: 50, textAlign: "right", color }}>{b.count}</span>
+                    <span className="faint mono" style={{ width: 40, textAlign: "right", fontSize: "var(--t-12)" }}>{pct.toFixed(0)}%</span>
                   </div>
                 );
               })}
+              {fleet.length === 0 && !isLoading && (
+                <div className="muted">No repos in fleet yet.</div>
+              )}
             </div>
             <div
               className="hairline-t"
               style={{
-                marginTop: 14,
-                paddingTop: 12,
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: "var(--t-12)",
+                marginTop: 14, paddingTop: 12, display: "flex",
+                justifyContent: "flex-end", fontSize: "var(--t-12)",
               }}
             >
-              <span className="muted">
-                Median health{" "}
-                <span className="mono" style={{ color: "var(--fg)" }}>
-                  78
-                </span>
-              </span>
-              <span className="muted">
-                7d change <span style={{ color: "var(--ok)" }}>+3.2</span>
-              </span>
-              <a
-                className="muted"
-                style={{ cursor: "pointer", color: "var(--cyan)" }}
-                onClick={() => onNav("repos")}
-              >
+              <a className="muted" style={{ cursor: "pointer", color: "var(--cyan)" }} onClick={() => onNav("repos")}>
                 View all repos →
               </a>
             </div>
@@ -233,134 +220,58 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
 
           <div className="card" style={{ padding: 14 }}>
             <div className="h-section">
-              <h2>Repair spend · {D.dashboard.repairCost.monthLabel}</h2>
+              <h2>Repair spend{cost.month_label ? ` · ${cost.month_label}` : ""}</h2>
             </div>
-            <div
-              style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}
-            >
-              <span
-                style={{
-                  fontSize: "var(--t-32)",
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                {D.dashboard.repairCost.spend}
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+              <span style={{ fontSize: "var(--t-32)", fontWeight: 600, letterSpacing: "-0.02em" }}>
+                {money(cost.spend_usd)}
               </span>
-              <span className="muted">of {D.dashboard.repairCost.budget}</span>
-            </div>
-            <div
-              style={{
-                height: 8,
-                background: "var(--bg-elev-2)",
-                borderRadius: 4,
-                overflow: "hidden",
-                marginTop: 12,
-              }}
-            >
-              <div
-                style={{
-                  width: "24%",
-                  height: "100%",
-                  background: "var(--grad-brand)",
-                }}
-              />
-            </div>
-            <div
-              className="row"
-              style={{ justifyContent: "space-between", marginTop: 8, fontSize: "var(--t-12)" }}
-            >
-              <span className="muted">24% used · 6 days in</span>
-              <span className="muted">on track</span>
+              <span className="muted">this month</span>
             </div>
             <div className="hairline-t" style={{ marginTop: 14, paddingTop: 12 }}>
-              <div
-                className="row"
-                style={{
-                  justifyContent: "space-between",
-                  fontSize: "var(--t-13)",
-                  marginBottom: 6,
-                }}
-              >
-                <span className="muted">By policy</span>
-                <span className="muted">tokens</span>
+              <div className="row" style={{ justifyContent: "space-between", fontSize: "var(--t-13)" }}>
+                <span className="muted">Avg per repair</span>
+                <span className="mono">{money(kpis.usd_per_repair_avg)}</span>
               </div>
-              {[
-                { l: "auto-fix:* (templates)", v: 184204, c: "var(--ok)" },
-                { l: "llm-assist:repair", v: 92448, c: "var(--info)" },
-                { l: "policy-evaluate", v: 41092, c: "var(--violet)" },
-              ].map((r, i) => (
-                <div
-                  key={i}
-                  className="row gap-3"
-                  style={{ padding: "5px 0", fontSize: "var(--t-13)" }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 999,
-                      background: r.c,
-                    }}
-                  />
-                  <span style={{ flex: 1 }}>{r.l}</span>
-                  <span className="mono muted">{r.v.toLocaleString()}</span>
-                </div>
-              ))}
+              <div className="row" style={{ justifyContent: "space-between", fontSize: "var(--t-13)", marginTop: 4 }}>
+                <span className="muted">Regression rate</span>
+                <span className="mono">{percent(kpis.regression_rate)}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom row: live activity + escalations */}
+        {/* Bottom row: live activity + awaiting approval */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="card" style={{ padding: 14 }}>
             <div className="h-section">
               <h2>Live activity</h2>
-              <span className="live" style={{ fontSize: 10 }}>
-                streaming
-              </span>
+              <span className="live" style={{ fontSize: 10 }}>streaming</span>
             </div>
             <div style={{ marginTop: 6 }}>
-              {D.dashboard.activity.map((a, i) => {
+              {activity.length === 0 && (
+                <div className="muted">No recent activity.</div>
+              )}
+              {activity.map((a, i) => {
                 const color =
-                  a.tone === "ok"
-                    ? "var(--ok)"
-                    : a.tone === "danger"
-                      ? "var(--danger)"
-                      : a.tone === "info"
-                        ? "var(--cyan)"
-                        : "var(--fg-faint)";
+                  a.level === "error" ? "var(--danger)" :
+                  a.level === "ok" ? "var(--ok)" :
+                  a.level === "warn" ? "var(--warn)" : "var(--cyan)";
                 return (
                   <div
-                    key={i}
+                    key={a.event_id || i}
                     className="row gap-3"
                     style={{
                       padding: "8px 0",
-                      borderBottom:
-                        i < D.dashboard.activity.length - 1
-                          ? "1px solid var(--hairline)"
-                          : "none",
+                      borderBottom: i < activity.length - 1 ? "1px solid var(--hairline)" : "none",
                     }}
                   >
-                    <span
-                      className="mono faint"
-                      style={{ fontSize: "var(--t-12)", width: 70 }}
-                    >
-                      {a.t}
+                    <span className="mono faint" style={{ fontSize: "var(--t-12)", width: 110 }} title={a.ts}>
+                      {a.ts ? new Date(a.ts).toLocaleTimeString() : ""}
                     </span>
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: 999,
-                        background: color,
-                        marginRight: 2,
-                      }}
-                    />
-                    <span style={{ flex: 1, fontSize: "var(--t-13)" }}>{a.text}</span>
-                    <span className="mono muted" style={{ fontSize: "var(--t-12)" }}>
-                      {a.repo}
-                    </span>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: color, marginRight: 2 }} />
+                    <span style={{ flex: 1, fontSize: "var(--t-13)" }}>{a.message}</span>
+                    <span className="mono muted" style={{ fontSize: "var(--t-12)" }}>{a.repo_full_name}</span>
                   </div>
                 );
               })}
@@ -370,51 +281,33 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
           <div className="card" style={{ padding: 14 }}>
             <div className="h-section">
               <h2>Needs my approval</h2>
-              <span className="pill pill-warn">3</span>
+              <span className="pill pill-warn">{awaiting.length}</span>
             </div>
-            {D.repairs
-              .filter((r) => r.state === "awaiting-approval")
-              .map((r, i) => (
-                <div
-                  key={i}
-                  className="row gap-3"
-                  style={{
-                    padding: "10px 0",
-                    borderBottom: "1px solid var(--hairline)",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => onNav("repair", r.id)}
-                >
-                  <Pill tone="warn" dot>
-                    Awaiting
-                  </Pill>
-                  <div className="col grow" style={{ minWidth: 0 }}>
-                    <span className="truncate" style={{ fontSize: "var(--t-13)" }}>
-                      {r.title}
-                    </span>
-                    <span
-                      className="faint truncate"
-                      style={{ fontSize: "var(--t-12)" }}
-                    >
-                      {r.repo} · {r.id} · opened {r.opened}
-                    </span>
-                  </div>
-                  <span className="sha">
-                    +{r.lines.added}/−{r.lines.removed}
-                  </span>
-                  <Icon
-                    name="caret"
-                    s={14}
-                    style={{ color: "var(--fg-faint)" }}
-                  />
-                </div>
-              ))}
-            <div style={{ paddingTop: 10, fontSize: "var(--t-13)" }}>
-              <a
-                className="muted"
-                style={{ cursor: "pointer", color: "var(--cyan)" }}
-                onClick={() => onNav("repairs")}
+            {awaiting.length === 0 && (
+              <div className="muted">Nothing awaiting approval.</div>
+            )}
+            {awaiting.map((r) => (
+              <div
+                key={r.repair_id}
+                className="row gap-3"
+                style={{ padding: "10px 0", borderBottom: "1px solid var(--hairline)", cursor: "pointer" }}
+                onClick={() => onNav("repair", r.repair_id)}
               >
+                <Pill tone="warn" dot>Awaiting</Pill>
+                <div className="col grow" style={{ minWidth: 0 }}>
+                  <span className="truncate" style={{ fontSize: "var(--t-13)" }}>
+                    {r.fixer_id}
+                  </span>
+                  <span className="faint truncate" style={{ fontSize: "var(--t-12)" }}>
+                    {r.repo?.full_name || r.repair_id?.slice(0, 8)} · {r.finding?.kind}
+                  </span>
+                </div>
+                <span className="sha">{money(r.cost_usd)}</span>
+                <Icon name="caret" s={14} style={{ color: "var(--fg-faint)" }} />
+              </div>
+            ))}
+            <div style={{ paddingTop: 10, fontSize: "var(--t-13)" }}>
+              <a className="muted" style={{ cursor: "pointer", color: "var(--cyan)" }} onClick={() => onNav("repairs")}>
                 View all repairs →
               </a>
             </div>

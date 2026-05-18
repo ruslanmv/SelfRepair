@@ -11,7 +11,34 @@ export default [
       ecmaVersion: 2022,
       sourceType: "module",
       parserOptions: { ecmaFeatures: { jsx: true } },
-      globals: { window: "readonly", document: "readonly" },
+      globals: {
+        // Standard browser API surface our SPA touches.
+        window: "readonly",
+        document: "readonly",
+        localStorage: "readonly",
+        sessionStorage: "readonly",
+        navigator: "readonly",
+        location: "readonly",
+        fetch: "readonly",
+        Headers: "readonly",
+        Response: "readonly",
+        Request: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        EventSource: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+        FormData: "readonly",
+        Blob: "readonly",
+        File: "readonly",
+        console: "readonly",
+        // Vite injects this at build time.
+        process: "readonly",
+      },
     },
     settings: { react: { version: "detect" } },
     plugins: {
@@ -26,10 +53,10 @@ export default [
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
       "react/no-unescaped-entities": "off",
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      // Off across the project: TweaksPanel and similar files
+      // intentionally export a hook + constants alongside the
+      // component. Refactoring them isn't worth the file fragmentation.
+      "react-refresh/only-export-components": "off",
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
     },
   },

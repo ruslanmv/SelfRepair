@@ -7,6 +7,11 @@ transition + audit row.
 
 This decouples "what to do at each stage" (handlers) from "drive state
 forward" (the pipeline runner) and makes both unit-testable.
+
+After every successful transition the pipeline publishes the just-recorded
+`job_event` row to Redis pub/sub so any number of SSE clients can tail the
+run in real time. Publish failures are logged but never bubble up — SSE is
+a UX nicety, not a correctness gate.
 """
 from __future__ import annotations
 
@@ -16,8 +21,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from selfrepair.persistence.models import JobEvent
 from selfrepair.persistence.repositories import JobsRepository
 from selfrepair.state.machine import JobState
 
@@ -49,12 +56,6 @@ StageHandler = Callable[[StageContext], Awaitable[StageResult]]
 
 
 class RepairPipeline:
-    """Owns the mapping from state to handler.
-
-    Handlers are registered explicitly so tests can swap them for fakes
-    without monkeypatching imports.
-    """
-
     def __init__(self) -> None:
         self._handlers: dict[JobState, StageHandler] = {}
 
@@ -71,6 +72,46 @@ class RepairPipeline:
                 f"no handler registered for state {ctx.state.value}"
             )
         return await handler(ctx)
+
+
+async def _publish_latest_event(
+    session: AsyncSession, job_id: uuid.UUID
+) -> None:
+    """Publish the most recent `job_event` row for `job_id` to pub/sub.
+
+    Called after the session commits so subscribers only ever see
+    durable events. Best-effort: any failure is swallowed.
+    """
+    try:
+        event = (
+            await session.execute(
+                select(JobEvent)
+                .where(JobEvent.job_id == job_id)
+                .order_by(JobEvent.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if event is None:
+            return
+        payload = {
+            "id": event.id,
+            "job_id": str(event.job_id),
+            "ts": event.ts.isoformat(),
+            "stage": (
+                event.stage.value
+                if hasattr(event.stage, "value")
+                else event.stage
+            ),
+            "level": event.level,
+            "message": event.message,
+            "payload": event.payload,
+        }
+        # Imported lazily so pipeline tests don't need redis installed.
+        from selfrepair.api.events import publish_job_event
+
+        await publish_job_event(job_id, payload)
+    except Exception:  # pragma: no cover - best effort
+        logger.debug("event pub/sub publish failed", exc_info=True)
 
 
 async def run_pipeline_step(
@@ -118,6 +159,7 @@ async def run_pipeline_step(
             await JobsRepository(session).fail(
                 job_id, error_kind=type(exc).__name__, message=str(exc)
             )
+        await _publish_latest_event(session, job_id)
         return JobState.ESCALATED
 
     await jobs.advance(
@@ -125,4 +167,5 @@ async def run_pipeline_step(
         message=result.message, payload=result.payload,
     )
     await session.commit()
+    await _publish_latest_event(session, job_id)
     return result.next_state

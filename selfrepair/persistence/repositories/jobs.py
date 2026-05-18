@@ -5,10 +5,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from selfrepair.persistence.models import Job, JobEvent, JobTrigger
+from selfrepair.persistence.models import Job, JobEvent, JobTrigger, Repo
 from selfrepair.state.machine import JobState, assert_transition
 
 _TERMINAL_STATES: frozenset[JobState] = frozenset(
@@ -27,10 +27,14 @@ _ACTIVE_STATES: tuple[JobState, ...] = (
     JobState.AWAITING_REVIEW,
 )
 
+ACTIVE_STATES = _ACTIVE_STATES  # public re-export for routes that need it
+
 
 class JobsRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    # --------------------------- writes (worker) ---------------------------
 
     async def create(
         self,
@@ -50,9 +54,6 @@ class JobsRepository:
         await self._record_event(job.id, JobState.QUEUED, message="job queued")
         return job
 
-    async def get(self, job_id: uuid.UUID) -> Job | None:
-        return await self._session.get(Job, job_id)
-
     async def advance(
         self,
         job_id: uuid.UUID,
@@ -61,12 +62,6 @@ class JobsRepository:
         message: str = "",
         payload: dict[str, Any] | None = None,
     ) -> Job:
-        """Validate and apply a state transition.
-
-        Raises `InvalidTransition` if the new state is not allowed from the
-        current one. The transition and the matching event row are committed
-        together by the caller.
-        """
         job = await self.get(job_id)
         if job is None:
             raise LookupError(f"job {job_id} not found")
@@ -80,11 +75,6 @@ class JobsRepository:
     async def fail(
         self, job_id: uuid.UUID, *, error_kind: str, message: str
     ) -> Job:
-        """Move the job to ESCALATED with an error_kind tag.
-
-        Used for unhandled exceptions — ESCALATED is reachable from any active
-        state, so this never raises InvalidTransition.
-        """
         job = await self.get(job_id)
         if job is None:
             raise LookupError(f"job {job_id} not found")
@@ -97,6 +87,17 @@ class JobsRepository:
         )
         return job
 
+    # --------------------------- reads (api) -------------------------------
+
+    async def get(self, job_id: uuid.UUID) -> Job | None:
+        return await self._session.get(Job, job_id)
+
+    async def get_for_org(
+        self, job_id: uuid.UUID, org_id: uuid.UUID
+    ) -> Job | None:
+        stmt = select(Job).where(Job.id == job_id, Job.org_id == org_id)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def list_active_for_repo(self, repo_id: uuid.UUID) -> list[Job]:
         stmt = (
             select(Job)
@@ -104,6 +105,67 @@ class JobsRepository:
             .order_by(Job.started_at)
         )
         return list((await self._session.execute(stmt)).scalars())
+
+    async def list_for_org(
+        self,
+        *,
+        org_id: uuid.UUID,
+        repo_id: uuid.UUID | None = None,
+        state: JobState | None = None,
+        active_only: bool = False,
+        limit: int = 50,
+        after_started_at: datetime | None = None,
+        after_id: uuid.UUID | None = None,
+    ) -> list[tuple[Job, Repo]]:
+        """Page over jobs joined to their repo.
+
+        Keyset on `(started_at DESC, id DESC)` — the natural "latest
+        first" the console renders.
+        """
+        stmt = (
+            select(Job, Repo)
+            .join(Repo, Repo.id == Job.repo_id)
+            .where(Job.org_id == org_id)
+            .order_by(Job.started_at.desc(), Job.id.desc())
+            .limit(limit)
+        )
+        if repo_id is not None:
+            stmt = stmt.where(Job.repo_id == repo_id)
+        if state is not None:
+            stmt = stmt.where(Job.state == state)
+        elif active_only:
+            stmt = stmt.where(Job.state.in_(_ACTIVE_STATES))
+        if after_started_at is not None and after_id is not None:
+            stmt = stmt.where(
+                or_(
+                    Job.started_at < after_started_at,
+                    and_(
+                        Job.started_at == after_started_at,
+                        Job.id < after_id,
+                    ),
+                )
+            )
+        rows = (await self._session.execute(stmt)).all()
+        return [(j, r) for (j, r) in rows]
+
+    async def list_events(
+        self,
+        *,
+        job_id: uuid.UUID,
+        after_id: int | None = None,
+        limit: int = 200,
+    ) -> list[JobEvent]:
+        stmt = (
+            select(JobEvent)
+            .where(JobEvent.job_id == job_id)
+            .order_by(JobEvent.id)
+            .limit(limit)
+        )
+        if after_id is not None:
+            stmt = stmt.where(JobEvent.id > after_id)
+        return list((await self._session.execute(stmt)).scalars())
+
+    # ---------------------------- internal --------------------------------
 
     async def _record_event(
         self,

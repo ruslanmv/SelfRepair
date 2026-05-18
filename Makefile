@@ -1,6 +1,6 @@
 .PHONY: help \
         venv install install-backend install-frontend install-clean install-all dev reset \
-        test test-all lint format typecheck \
+        test test-all lint format typecheck verify \
         migrate migrate-down migrate-rev \
         start start-backend start-frontend start-deps start-all _wait-backend \
         stop stop-backend stop-frontend stop-deps stop-all \
@@ -267,6 +267,8 @@ frontend-docker: ## Build the nginx-served console image
 # ============== Meta ==============
 
 ci: lint test ## What CI runs: lint + unit tests
+
+verify: lint test frontend-lint frontend-build ## Full pre-push check: ruff + pytest + ESLint + vite build
 
 clean: ## Remove build artefacts and caches (does not stop services or remove .venv)
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +

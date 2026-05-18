@@ -24,9 +24,11 @@ def app(monkeypatch):
 
     app = build_app()
     # Lifespan would set this to a real Arq pool. Override before TestClient
-    # so we don't try to connect to Redis during unit tests.
+    # so we don't try to connect to Redis during unit tests. ping is async
+    # because /readyz awaits it.
     app.state.queue = MagicMock()
     app.state.queue.enqueue_job = AsyncMock()
+    app.state.queue.ping = AsyncMock(return_value=True)
     return app
 
 
@@ -47,9 +49,22 @@ class TestHealth:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
-    def test_readyz_returns_ready(self, client) -> None:
+    def test_readyz_reports_per_component_health(self, client) -> None:
+        """`/readyz` pings Postgres + Redis and returns a per-component body.
+
+        In a unit-test environment Postgres is unreachable but the queue
+        mock returns ping=True. The endpoint must therefore return 503
+        with `status: degraded` and a `checks` map carrying both probes.
+        """
         resp = client.get("/readyz")
-        assert resp.status_code == 200
+        body = resp.json()
+        assert resp.status_code in (200, 503)
+        assert "status" in body
+        assert "checks" in body
+        assert "postgres" in body["checks"]
+        assert "redis" in body["checks"]
+        # Redis is mocked up, so its sub-probe should report ok=True.
+        assert body["checks"]["redis"]["ok"] is True
 
 
 class TestGitHubWebhook:
