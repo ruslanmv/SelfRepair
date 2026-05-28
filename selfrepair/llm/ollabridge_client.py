@@ -14,11 +14,22 @@ class OllaBridgeClient:
     """OpenAI-compatible client for OllaBridge / OllaBridge Cloud.
 
     Uses the /v1/chat/completions endpoint which is compatible with
-    both local OllaBridge and the cloud relay service.
+    both local OllaBridge and the cloud relay service. The constructor
+    accepts either form of base URL -- with or without a trailing
+    ``/v1`` -- and normalizes to the form expected by the request
+    methods so we never produce ``/v1/v1/chat/completions``.
     """
 
     def __init__(self, settings: Settings) -> None:
-        self.base_url = settings.ollabridge_base_url.rstrip("/")
+        base = settings.ollabridge_base_url.rstrip("/")
+        # The methods below build paths like ``f"{base_url}/v1/..."`` so
+        # strip a trailing ``/v1`` if the caller already included it.
+        # Both ``https://api.ollabridge.com`` and
+        # ``https://api.ollabridge.com/v1`` produce the same effective
+        # endpoint.
+        if base.endswith("/v1"):
+            base = base[: -len("/v1")]
+        self.base_url = base
         self.api_key = settings.ollabridge_api_key
         self.model = settings.ollabridge_model
         self.timeout = settings.ollabridge_timeout

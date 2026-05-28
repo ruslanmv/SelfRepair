@@ -48,6 +48,7 @@ from selfrepair.api.routes import (
     webhooks,
     webhooks_gitlab,
 )
+from selfrepair.api.v1.rpc import router as v1_rpc_router
 from selfrepair.auth.middleware import SessionMiddleware
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,17 @@ def build_app() -> FastAPI:
             "X-Idempotent-Replay",
         ],
     )
+    # /v1/* cross-origin surface for the matrix-maintainer status site and
+    # other external clients of the stable contract. Wide-open by design so
+    # the status site can call directly when proxied.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-Id"],
+    )
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(webhooks.router)
@@ -127,6 +139,8 @@ def build_app() -> FastAPI:
     app.include_router(metrics.router)
     app.include_router(ci.router)
     app.include_router(issues.router)
+    # v1 stable client contract (JSON-RPC over /v1/rpc + /v1/about)
+    app.include_router(v1_rpc_router)
     return app
 
 
