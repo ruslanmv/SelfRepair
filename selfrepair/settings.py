@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,9 +52,26 @@ class Settings(BaseSettings):
     matrixlab_fallback_local: bool = Field(default=True, alias="MATRIXLAB_FALLBACK_LOCAL")
     matrixlab_api_url: str | None = Field(default=None, alias="MATRIXLAB_API_URL")
 
-    # OllaBridge Cloud LLM integration
+    # OllaBridge Cloud LLM integration.
+    #
+    # OllaBridge Cloud is the official enterprise LLM gateway for the
+    # Agent-Matrix ecosystem. It speaks the OpenAI-compatible
+    # /v1/chat/completions wire format, so callers that run SelfRepair as a
+    # subprocess (notably matrix-maintainer) typically inject the standard
+    # OPENAI_* env vars instead of the canonical OLLABRIDGE_* ones.
+    #
+    # Resolution order, highest precedence first:
+    #   1. OLLABRIDGE_BASE_URL / OLLABRIDGE_API_KEY / OLLABRIDGE_MODEL
+    #   2. OPENAI_BASE_URL     / OPENAI_API_KEY     / OPENAI_MODEL
+    #   3. The built-in defaults below.
+    #
+    # The fallback is wired up in `_apply_openai_fallback` so the same
+    # OpenAI-compatible code paths keep working unmodified. We also
+    # auto-flip `ollabridge_enabled` to True when a key gets resolved
+    # (matrix-maintainer subprocess flow does not set the boolean
+    # explicitly -- having a key is operator intent enough).
     ollabridge_enabled: bool = Field(default=False, alias="OLLABRIDGE_ENABLED")
-    ollabridge_base_url: str = Field(default="http://localhost:8000", alias="OLLABRIDGE_BASE_URL")
+    ollabridge_base_url: str = Field(default="https://api.ollabridge.com/v1", alias="OLLABRIDGE_BASE_URL")
     ollabridge_api_key: str | None = Field(default=None, alias="OLLABRIDGE_API_KEY")
     ollabridge_model: str = Field(default="qwen2.5:1.5b", alias="OLLABRIDGE_MODEL")
     ollabridge_timeout: float = Field(default=120.0, alias="OLLABRIDGE_TIMEOUT")
@@ -69,6 +87,51 @@ class Settings(BaseSettings):
     max_autofix_files: int = Field(default=25, alias="MAX_AUTOFIX_FILES")
     dry_run: bool = Field(default=True, alias="DRY_RUN")
     clone_depth: int = Field(default=1, alias="CLONE_DEPTH")
+
+    @model_validator(mode="after")
+    def _apply_openai_fallback(self) -> Settings:
+        """Fall back to OPENAI_* env vars when OLLABRIDGE_* are unset.
+
+        matrix-maintainer and other Agent-Matrix subprocesses pass the
+        OpenAI-compatible env vars (OPENAI_BASE_URL, OPENAI_API_KEY,
+        OPENAI_MODEL) when spawning SelfRepair. We treat those as a
+        compatibility alias for the canonical OLLABRIDGE_* names so the
+        ecosystem can share a single configuration surface.
+
+        We also auto-enable OllaBridge if a key was resolved but
+        OLLABRIDGE_ENABLED was not explicitly set -- an injected API
+        key is operator intent enough. An explicit
+        ``OLLABRIDGE_ENABLED=false`` continues to win because the
+        env-var binding has already run by the time this validator
+        sees the model.
+        """
+        # Base URL: only override when caller did not set OLLABRIDGE_BASE_URL.
+        if "OLLABRIDGE_BASE_URL" not in os.environ:
+            openai_base = os.environ.get("OPENAI_BASE_URL")
+            if openai_base:
+                self.ollabridge_base_url = openai_base
+
+        # API key: only override when caller did not set OLLABRIDGE_API_KEY.
+        had_explicit_key = self.ollabridge_api_key is not None
+        if not had_explicit_key:
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            if openai_key:
+                self.ollabridge_api_key = openai_key
+
+        # Model: only override when caller did not set OLLABRIDGE_MODEL.
+        if "OLLABRIDGE_MODEL" not in os.environ:
+            openai_model = os.environ.get("OPENAI_MODEL")
+            if openai_model:
+                self.ollabridge_model = openai_model
+
+        # Auto-enable on resolved key, unless the operator opted out.
+        explicit_enabled = (
+            "OLLABRIDGE_ENABLED" in os.environ or "OLLABRIDGE_ENABLED".lower() in os.environ
+        )
+        if not self.ollabridge_enabled and not explicit_enabled and self.ollabridge_api_key:
+            self.ollabridge_enabled = True
+
+        return self
 
     def ensure_directories(self) -> None:
         self.work_dir.mkdir(parents=True, exist_ok=True)

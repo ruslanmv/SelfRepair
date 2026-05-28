@@ -187,14 +187,25 @@ HF_REPO_TYPES=model,dataset,space
 <summary><b>🤖 OllaBridge Cloud (LLM Repair)</b></summary>
 
 ```env
+# Canonical Agent-Matrix names (preferred).
 OLLABRIDGE_ENABLED=true
-OLLABRIDGE_BASE_URL=https://your-ollabridge.hf.space
-OLLABRIDGE_API_KEY=              # optional
+OLLABRIDGE_BASE_URL=https://api.ollabridge.com/v1
+OLLABRIDGE_API_KEY=ob_xxxxxxxxxxxxxxxx     # placeholder — never commit a real key
 OLLABRIDGE_MODEL=qwen2.5:1.5b
 OLLABRIDGE_TIMEOUT=120.0
+
+# OpenAI-compatible aliases (used as fallback when OLLABRIDGE_* are unset).
+# matrix-maintainer subprocesses SelfRepair with these injected.
+# OPENAI_BASE_URL=https://api.ollabridge.com/v1
+# OPENAI_API_KEY=ob_xxxxxxxxxxxxxxxx
+# OPENAI_MODEL=qwen2.5:1.5b
 ```
 
-SelfRepair Repo uses OllaBridge's OpenAI-compatible `/v1/chat/completions` endpoint to get LLM-assisted repair suggestions when automated fixes aren't sufficient.
+SelfRepair uses OllaBridge's OpenAI-compatible `/v1/chat/completions` endpoint
+for LLM-assisted repair suggestions when automated fixes aren't sufficient.
+Precedence is **`OLLABRIDGE_*` > `OPENAI_*` > built-in defaults**, so the same
+OpenAI-compatible code paths keep working unmodified regardless of which
+naming scheme the caller uses.
 </details>
 
 ---
@@ -236,19 +247,52 @@ selfrepair/
 
 ## 🤖 OllaBridge Integration
 
-SelfRepair Repo integrates with [OllaBridge Cloud](https://github.com/ruslanmv/ollabridge-cloud) for LLM-powered repair intelligence:
+[OllaBridge Cloud](https://github.com/ruslanmv/ollabridge-cloud) is the
+**official enterprise LLM gateway for the Agent-Matrix ecosystem**. SelfRepair,
+GitPilot, and matrix-maintainer all route their LLM traffic through it, which
+means a single API key, a single audit log, and a single point of policy
+enforcement for every Agent-Matrix agent in your organization.
 
-1. **Health Check Fails** → SelfRepair Repo detects broken install/test/start
-2. **LLM Analysis** → Sends failure context to OllaBridge `/v1/chat/completions`
-3. **Smart Suggestions** → Receives repair recommendations from the LLM
-4. **Safe Application** → Applies fixes through the governance policy engine
+How SelfRepair plugs into the gateway:
+
+1. **Health Check Fails** → SelfRepair detects a broken install/test/start.
+2. **LLM Analysis** → Sends failure context to OllaBridge `/v1/chat/completions`.
+3. **Smart Suggestions** → Receives repair recommendations from the LLM.
+4. **Safe Application** → Applies fixes through the governance policy engine.
+
+### Env-var precedence
+
+SelfRepair is most often invoked as a library or subprocess from
+[matrix-maintainer](https://github.com/agent-matrix/matrix-maintainer), which
+injects the OllaBridge gateway as the standard OpenAI-compatible
+`OPENAI_BASE_URL` / `OPENAI_API_KEY` (`ob_…`) / `OPENAI_MODEL` env vars. To
+keep that ergonomic — and to keep the rest of the OpenAI-compatible code
+paths intact — SelfRepair honors both naming schemes with a defined order of
+precedence:
+
+1. `OLLABRIDGE_BASE_URL` / `OLLABRIDGE_API_KEY` / `OLLABRIDGE_MODEL` (canonical).
+2. `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` (compat fallback used
+   by matrix-maintainer and other orchestrators).
+3. Built-in defaults (`https://api.ollabridge.com/v1`, `qwen2.5:1.5b`, …).
 
 ```python
-# OllaBridge is used automatically when enabled
-# It provides intelligent repair suggestions beyond template fixes
+# Either of these env shapes works — SelfRepair resolves them the same way.
+
+# (a) Canonical Agent-Matrix names:
 OLLABRIDGE_ENABLED=true
-OLLABRIDGE_BASE_URL=https://your-ollabridge.hf.space
+OLLABRIDGE_BASE_URL=https://api.ollabridge.com/v1
+OLLABRIDGE_API_KEY=ob_xxxxxxxxxxxxxxxx
+OLLABRIDGE_MODEL=qwen2.5:1.5b
+
+# (b) OpenAI-compat names (what matrix-maintainer injects when it
+#     subprocesses SelfRepair):
+OPENAI_BASE_URL=https://api.ollabridge.com/v1
+OPENAI_API_KEY=ob_xxxxxxxxxxxxxxxx
+OPENAI_MODEL=qwen2.5:1.5b
 ```
+
+OllaBridge API keys start with the `ob_` prefix; never commit a real key to
+the repository — `.env.example` ships placeholders only.
 
 ---
 
