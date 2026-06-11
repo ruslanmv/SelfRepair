@@ -4,17 +4,25 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
-import { ApiError } from "../api/client.js";
 import * as auth from "../api/auth.js";
 
 export function useSession() {
   return useQuery({
     queryKey: ["me"],
     queryFn: () => auth.me(),
-    retry: false,
+    // Cold-start resilience: a 401 is a definitive "not logged in" (don't
+    // retry → show Login fast). Any transient failure (network/status 0 or a
+    // 5xx/504 while the HF Space is waking up) is retried with backoff so the
+    // operator sees the loading spinner, then the app — not an error screen.
+    retry: (failureCount, error) => {
+      if (error && error.status === 401) return false;
+      return failureCount < 6;
+    },
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
     staleTime: 60_000,
-    // 401 means "not logged in" — return null instead of bubbling.
-    throwOnError: (err) => !(err instanceof ApiError && err.status === 401),
+    // Never bubble session errors to the error boundary. The App decides what
+    // to render from `session.error.status` once retries are exhausted.
+    throwOnError: false,
   });
 }
 

@@ -7,12 +7,19 @@ import { AuditLogDrawer } from "./features/AuditLogDrawer.jsx";
 import { AutoRepairModal } from "./features/AutoRepairModal.jsx";
 import { ChatDock, ChatToggle } from "./features/ChatDock.jsx";
 import { RunRepairModal } from "./features/RunRepairModal.jsx";
-import { useLogout } from "./hooks/useSession.js";
+import { useLogout, useSession } from "./hooks/useSession.js";
+import { EmptyState, ErrorState, LoadingState } from "./components/StateScreens.jsx";
 import { AuditLog } from "./surfaces/AuditLog.jsx";
+import { AdminUsers } from "./surfaces/admin/AdminUsers.jsx";
+import { AdminSystem } from "./surfaces/admin/AdminSystem.jsx";
+import { AdminLogs } from "./surfaces/admin/AdminLogs.jsx";
 import { Findings } from "./surfaces/Findings.jsx";
+import { Inbox } from "./surfaces/Inbox.jsx";
 import { JobDetail } from "./surfaces/JobDetail.jsx";
 import { Jobs } from "./surfaces/Jobs.jsx";
+import { AuthGate } from "./surfaces/AuthGate.jsx";
 import { Login } from "./surfaces/Login.jsx";
+import { Connections } from "./surfaces/Connections.jsx";
 import { OpenIssues } from "./surfaces/OpenIssues.jsx";
 import { Overview } from "./surfaces/Overview.jsx";
 import { Policies } from "./surfaces/Policies.jsx";
@@ -23,10 +30,24 @@ import { Repos } from "./surfaces/Repos.jsx";
 import { Settings } from "./surfaces/Settings.jsx";
 import { StubPage } from "./surfaces/StubPage.jsx";
 
+function NotAuthorized() {
+  return (
+    <div className="page-fade" style={{ padding: "16px 20px" }}>
+      <EmptyState
+        title="Not authorized"
+        message="This area is restricted to administrators."
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const [tweaks, setTweak] = useTweaks();
   const [route, setRoute] = React.useState({ name: "overview", payload: null });
   const [cmdOpen, setCmdOpen] = React.useState(false);
+  const [navOpen, setNavOpen] = React.useState(false);
+
+  const session = useSession();
 
   const [runOpen, setRunOpen] = React.useState(false);
   const [runTarget, setRunTarget] = React.useState(null);
@@ -60,7 +81,28 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const navigate = (name, payload = null) => setRoute({ name, payload });
+  const navigate = (name, payload = null) => {
+    setRoute({ name, payload });
+    setNavOpen(false); // close the mobile drawer on any navigation
+  };
+
+  // Real signed-in user for the sidebar/account menu (no placeholder identity).
+  const sUser = session.data?.user;
+  const isAdmin = (sUser?.role || "user") === "admin";
+  const currentUser = sUser
+    ? {
+        name: sUser.display_name || sUser.name || sUser.username || sUser.email || "User",
+        email: sUser.email || "",
+        initials:
+          (sUser.display_name || sUser.username || sUser.email || "S R")
+            .split(/[\s@._-]+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((p) => p[0].toUpperCase())
+            .join("") || "SR",
+        hue: 200,
+      }
+    : undefined;
 
   const openRun = (target) => {
     setRunTarget(target);
@@ -82,6 +124,7 @@ export default function App() {
   const crumbs = (() => {
     const home = { label: "Fleet", onClick: () => navigate("overview") };
     if (route.name === "overview") return [home, { label: "Overview" }];
+    if (route.name === "inbox") return [home, { label: "Inbox" }];
     if (route.name === "repos") return [home, { label: "Repos" }];
     if (route.name === "repo")
       return [
@@ -107,7 +150,11 @@ export default function App() {
       ];
     if (route.name === "policies") return [home, { label: "Policies" }];
     if (route.name === "audit") return [home, { label: "Audit log" }];
+    if (route.name === "connections") return [home, { label: "Connections" }];
     if (route.name === "settings") return [home, { label: "Settings" }];
+    if (route.name === "admin-users") return [home, { label: "Admin" }, { label: "Users" }];
+    if (route.name === "admin-system") return [home, { label: "Admin" }, { label: "System" }];
+    if (route.name === "admin-logs") return [home, { label: "Admin" }, { label: "Logs" }];
     if (route.name === "login") return [home, { label: "Sign in" }];
     if (route.name === "about") return [home, { label: "About" }];
     if (route.name === "help") return [home, { label: "Help" }];
@@ -117,6 +164,7 @@ export default function App() {
   const sidebarKey =
     {
       overview: "overview",
+      inbox: "inbox",
       repos: "repos",
       repo: "repos",
       findings: "findings",
@@ -127,9 +175,13 @@ export default function App() {
       job: "jobs",
       policies: "policies",
       audit: "audit",
+      connections: "connections",
       settings: "settings",
       about: "settings",
       help: "settings",
+      "admin-users": "admin-users",
+      "admin-system": "admin-system",
+      "admin-logs": "admin-logs",
     }[route.name] || "overview";
 
   const chatScope = (() => {
@@ -161,6 +213,8 @@ export default function App() {
     switch (route.name) {
       case "overview":
         return <Overview onNav={navigate} showHeroGradient={tweaks.showHeroGradient} />;
+      case "inbox":
+        return <Inbox onNav={navigate} />;
       case "repos":
         return <Repos onNav={navigate} layout={tweaks.reposLayout} />;
       case "repo":
@@ -206,8 +260,16 @@ export default function App() {
         return <Policies />;
       case "audit":
         return <AuditLog />;
+      case "connections":
+        return <Connections />;
       case "settings":
         return <Settings />;
+      case "admin-users":
+        return isAdmin ? <AdminUsers /> : <NotAuthorized />;
+      case "admin-system":
+        return isAdmin ? <AdminSystem /> : <NotAuthorized />;
+      case "admin-logs":
+        return isAdmin ? <AdminLogs /> : <NotAuthorized />;
       case "login":
         return <Login onLoggedIn={() => navigate("overview")} />;
       case "about":
@@ -261,11 +323,51 @@ export default function App() {
     </>
   );
 
+  // Never render a blank/black screen: show explicit loading, then gate on auth.
+  if (session.isLoading) {
+    return <LoadingState full />;
+  }
+  if (!sUser) {
+    // Distinguish "logged out" (show sign in) from "backend briefly
+    // unreachable" (show a friendly retry) — a transient 5xx / network error
+    // while the Space wakes up must never look like a crash.
+    const status = session.error?.status;
+    if (session.isError && status !== 401) {
+      return (
+        <ErrorState
+          full
+          code="MOB-AUTH-503"
+          title="Can’t reach SelfRepair right now"
+          message="We couldn’t load your session — this is usually temporary while the service wakes up. Please retry in a moment."
+          onRetry={() => session.refetch()}
+        />
+      );
+    }
+    // Not authenticated (or session expired) -> full-screen auth gate
+    // (sign in / register / forgot / verify / reset, all in the console design).
+    return (
+      <AuthGate
+        onLoggedIn={() => {
+          navigate("overview");
+          session.refetch();
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="app-shell" data-screen-label={route.name}>
+    <div
+      className={`app-shell${navOpen ? " nav-open" : ""}`}
+      data-screen-label={route.name}
+    >
+      <div className="nav-backdrop" onClick={() => setNavOpen(false)} />
       <Sidebar
         route={sidebarKey}
         onNav={navigate}
+        user={currentUser}
+        isAdmin={isAdmin}
+        onClose={() => setNavOpen(false)}
+        workspace={session.data?.org?.name || "agent-matrix"}
         onAccountAction={async (action) => {
           if (action === "settings") navigate("settings");
           else if (action === "about") navigate("about");
@@ -283,11 +385,17 @@ export default function App() {
         }}
       />
       <main className="main">
-        <Topbar crumbs={crumbs} onCmd={() => setCmdOpen(true)} right={topbarRight} />
+        <Topbar
+          crumbs={crumbs}
+          onCmd={() => setCmdOpen(true)}
+          onMenu={() => setNavOpen(true)}
+          right={topbarRight}
+          onNav={navigate}
+        />
         <div className="content">{renderRoute()}</div>
       </main>
 
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} onPick={onPickCmd} />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} onPick={onPickCmd} isAdmin={isAdmin} />
 
       <RunRepairModal
         open={runOpen}

@@ -13,8 +13,8 @@ const inputStyle = {
   outline: "none",
 };
 
-export function Login({ onLoggedIn }) {
-  const [email, setEmail] = React.useState("");
+export function Login({ onLoggedIn, onRegister, onForgot, notice, initialEmail }) {
+  const [email, setEmail] = React.useState(initialEmail || "");
   const [password, setPassword] = React.useState("");
   const [orgId, setOrgId] = React.useState("");
   const login = useLogin();
@@ -43,14 +43,14 @@ export function Login({ onLoggedIn }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 40,
-        minHeight: "calc(100vh - 80px)",
+        padding: "24px 16px",
+        minHeight: "100vh",
       }}
     >
       <form
         onSubmit={submit}
         className="card"
-        style={{ width: 380, padding: 28 }}
+        style={{ width: "min(380px, 100%)", padding: 28 }}
       >
         <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600 }}>
           Sign in
@@ -61,6 +61,23 @@ export function Login({ onLoggedIn }) {
         >
           SelfRepair Console
         </p>
+
+        {notice && (
+          <div
+            role="status"
+            style={{
+              background: "rgba(79,209,197,0.12)",
+              border: "1px solid rgba(79,209,197,0.35)",
+              color: "var(--cyan, #4fd1c5)",
+              borderRadius: 6,
+              padding: "9px 11px",
+              fontSize: 13,
+              marginBottom: 14,
+            }}
+          >
+            {notice}
+          </div>
+        )}
 
         <label
           style={{ display: "block", fontSize: 12, marginBottom: 6 }}
@@ -140,7 +157,26 @@ export function Login({ onLoggedIn }) {
           className="muted"
           style={{ margin: "14px 0 0", fontSize: 12, textAlign: "center" }}
         >
-          Forgot your password? Ask an org admin to reset it.
+          New here?{" "}
+          <button
+            type="button"
+            onClick={onRegister}
+            style={{ color: "var(--cyan, #4fd1c5)", background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 12 }}
+          >
+            Create an account
+          </button>
+        </p>
+        <p
+          className="muted"
+          style={{ margin: "6px 0 0", fontSize: 12, textAlign: "center" }}
+        >
+          <button
+            type="button"
+            onClick={onForgot}
+            style={{ color: "var(--cyan, #4fd1c5)", background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 12 }}
+          >
+            Forgot your password?
+          </button>
         </p>
       </form>
     </div>

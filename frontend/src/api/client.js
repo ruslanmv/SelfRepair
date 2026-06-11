@@ -11,7 +11,15 @@
  * login round-trip.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+// API base resolution:
+//   - In production the SPA is served by the same FastAPI app that exposes the
+//     `/v1` API, so it must call `/v1/...` SAME-ORIGIN (empty base). A wrong
+//     `/api` prefix made every request 404 (e.g. /api/v1/me).
+//   - In dev, Vite proxies `/api` -> the backend, so we keep the `/api` base.
+//   - An explicit VITE_API_BASE (even an empty string) still overrides, hence
+//     `??` rather than `||` (empty string is a valid, intentional base).
+const API_BASE =
+  import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? "/api" : "");
 const DEV_ORG_ID = import.meta.env.VITE_DEV_ORG_ID || "";
 
 export class ApiError extends Error {

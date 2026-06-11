@@ -1,27 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Sign In - RepoGuardian{% endblock %}
-{% block content %}
-<div class="auth-container">
-    <div class="auth-card">
-        <h2>Welcome back</h2>
-        <p class="subtitle">Sign in to your RepoGuardian account</p>
-        {% if error %}
-        <div class="alert alert-error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/login">
-            <div class="form-group">
-                <label class="form-label" for="username">Username or Email</label>
-                <input class="form-input" type="text" id="username" name="username" required autofocus placeholder="admin">
-            </div>
-            <div class="form-group">
-                <label class="form-label" for="password">Password</label>
-                <input class="form-input" type="password" id="password" name="password" required placeholder="Enter your password">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Sign In</button>
-        </form>
-        <div class="auth-footer">
-            Don't have an account? <a href="/register">Create one</a>
-        </div>
-    </div>
+{% block title %}Sign in · SelfRepair{% endblock %}
+{% block auth %}
+<div style="text-align:center; margin-bottom:22px;">
+  <div class="brand" style="justify-content:center; font-size:18px;">
+    <span class="logo">SR</span><span>SELFREPAIR</span>
+  </div>
+  <p class="label" style="margin-top:10px;">Maintenance console · operator access</p>
 </div>
+<div class="panel">
+  {% if notice %}<div class="alert ok">{{ notice }}</div>{% endif %}
+  {% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+  {% if unverified_email %}
+  <form method="POST" action="/resend-verification" style="margin-bottom:14px;">
+    <input type="hidden" name="email" value="{{ unverified_email }}" />
+    <button class="btn ghost sm" type="submit" style="width:100%;">Resend verification email</button>
+  </form>
+  {% endif %}
+  <form method="POST" action="/login">
+    <div class="field">
+      <label for="username">Username or email</label>
+      <input class="input" type="text" id="username" name="username" placeholder="admin" autofocus required />
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input class="input" type="password" id="password" name="password" placeholder="••••••••" required />
+    </div>
+    <button class="btn" type="submit" style="width:100%;">Enter console</button>
+  </form>
+  <div class="row-actions" style="justify-content:space-between; margin-top:14px;">
+    <a class="hint" href="/register">Create account</a>
+    <a class="hint" href="/forgot-password">Forgot password?</a>
+  </div>
+</div>
+<p class="hint mono" style="text-align:center; margin-top:16px;">Public demo · dry-run only · no HF_TOKEN stored here</p>
 {% endblock %}

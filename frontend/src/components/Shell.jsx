@@ -2,34 +2,51 @@ import React from "react";
 
 import { AdminAccountMenu } from "./AdminAccountMenu.jsx";
 import { Icon } from "./atoms.jsx";
+import { NotificationBell } from "./NotificationBell.jsx";
 
-const ADMIN_USER = {
-  name: "Ruslan M.",
-  email: "admin@selfrepair.dev",
-  initials: "RM",
+const FALLBACK_USER = {
+  name: "SelfRepair user",
+  email: "",
+  initials: "SR",
   hue: 200,
 };
 
 const NAV = [
   { section: "Operate" },
   { id: "overview", label: "Overview", icon: "dashboard" },
-  { id: "repos", label: "Repos", icon: "repos", count: "1.2k" },
-  { id: "findings", label: "Findings", icon: "findings", count: 342 },
-  { id: "repairs", label: "Repairs", icon: "repairs", count: 18 },
-  { id: "issues", label: "Open Issues", icon: "findings", count: 7 },
-  { id: "jobs", label: "Jobs", icon: "jobs", live: true },
+  { id: "inbox", label: "Inbox", icon: "findings" },
+  { id: "repos", label: "Repos", icon: "repos" },
+  { id: "findings", label: "Findings", icon: "findings" },
+  { id: "repairs", label: "Repairs", icon: "repairs" },
+  { id: "issues", label: "Open Issues", icon: "findings" },
+  { id: "jobs", label: "Jobs", icon: "jobs" },
   { section: "Govern" },
   { id: "policies", label: "Policies", icon: "policies" },
   { id: "audit", label: "Audit log", icon: "audit" },
   { section: "Configure" },
+  { id: "connections", label: "Connections", icon: "branch" },
   { id: "settings", label: "Settings", icon: "settings" },
+  { section: "Admin", admin: true },
+  { id: "admin-users", label: "Users", icon: "shield", admin: true },
+  { id: "admin-system", label: "System", icon: "dashboard", admin: true },
+  { id: "admin-logs", label: "Logs", icon: "audit", admin: true },
 ];
 
-export const Sidebar = ({ route, onNav, onAccountAction }) => (
+// Real, live nav badges: only render a count when the backend reports a
+// positive number (no fabricated placeholder values).
+const NavBadge = ({ value }) => {
+  if (value == null || value === 0) return null;
+  const display = typeof value === "number" && value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value;
+  return (
+    <span className="faint mono" style={{ fontSize: 11 }}>
+      {display}
+    </span>
+  );
+};
+
+export const Sidebar = ({ route, onNav, onAccountAction, user, onClose, counts = {}, workspace = "agent-matrix", isAdmin = false }) => (
   // Three-region layout: head (logo + workspace) is fixed-height; nav is the
-  // only scrollable region; footer (admin account) is fixed-height. This
-  // prevents Settings from being clipped on short viewports and keeps the
-  // account button from overlapping the nav list.
+  // only scrollable region; footer (admin account) is fixed-height.
   <aside className="sidebar">
     <div className="sidebar-head">
       <div className="row" style={{ alignItems: "center", gap: 10, padding: "14px 16px 12px" }}>
@@ -49,6 +66,12 @@ export const Sidebar = ({ route, onNav, onAccountAction }) => (
             Console · v1.0
           </span>
         </div>
+        {/* Mobile-only: close the drawer. */}
+        <button className="sidebar-close" aria-label="Close menu" onClick={onClose}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </div>
 
       <div style={{ padding: "0 12px 8px" }}>
@@ -62,7 +85,7 @@ export const Sidebar = ({ route, onNav, onAccountAction }) => (
                 background: "linear-gradient(135deg, #8B5CF6, #06B6D4)",
               }}
             />
-            <span>agent-matrix</span>
+            <span>{workspace}</span>
           </span>
           <Icon name="caretDown" s={12} style={{ color: "var(--fg-muted)" }} />
         </button>
@@ -70,7 +93,7 @@ export const Sidebar = ({ route, onNav, onAccountAction }) => (
     </div>
 
     <nav className="sidebar-nav">
-      {NAV.map((item, i) => {
+      {NAV.filter((item) => !item.admin || isAdmin).map((item, i) => {
         if (item.section)
           return (
             <div key={`s${i}`} className="nav-section">
@@ -88,30 +111,27 @@ export const Sidebar = ({ route, onNav, onAccountAction }) => (
               <Icon name={item.icon} s={15} />
             </span>
             <span style={{ flex: 1 }}>{item.label}</span>
-            {item.live && (
-              <span className="live" style={{ fontSize: 10 }}>
-                2
-              </span>
-            )}
-            {item.count != null && !item.live && (
-              <span className="faint mono" style={{ fontSize: 11 }}>
-                {item.count}
-              </span>
-            )}
+            <NavBadge value={counts[item.id]} />
           </div>
         );
       })}
     </nav>
 
     <div className="sidebar-footer">
-      <AdminAccountMenu user={ADMIN_USER} onAction={onAccountAction} />
+      <AdminAccountMenu user={user || FALLBACK_USER} onAction={onAccountAction} />
     </div>
   </aside>
 );
 
-export const Topbar = ({ crumbs = [], onCmd, right }) => (
+export const Topbar = ({ crumbs = [], onCmd, onMenu, right, onNav }) => (
   <header className="topbar">
-    <div className="row gap-2 grow" style={{ minWidth: 0 }}>
+    {/* Mobile-only hamburger to open the nav drawer. */}
+    <button className="nav-toggle" aria-label="Open menu" onClick={onMenu}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d="M3 6h18M3 12h18M3 18h18" />
+      </svg>
+    </button>
+    <div className="row gap-2 grow topbar-crumbs" style={{ minWidth: 0 }}>
       {crumbs.map((c, i) => (
         <React.Fragment key={i}>
           {i > 0 && (
@@ -131,27 +151,21 @@ export const Topbar = ({ crumbs = [], onCmd, right }) => (
         </React.Fragment>
       ))}
     </div>
-    <button className="btn btn-ghost" onClick={onCmd} style={{ gap: 8 }}>
+    <button className="btn btn-ghost topbar-search" onClick={onCmd} style={{ gap: 8 }} aria-label="Search">
       <Icon name="search" s={13} />
-      <span className="muted">Search · jump to anywhere</span>
+      <span className="muted topbar-search-label">Search · jump to anywhere</span>
       <span className="kbd" style={{ marginLeft: 8 }}>
         ⌘K
       </span>
     </button>
     {right}
-    <button
-      className="btn btn-icon btn-ghost"
-      title="Notifications"
-      style={{ position: "relative" }}
-    >
-      <Icon name="bell" s={14} />
-      <span className="notif-dot" style={{ position: "absolute", top: 5, right: 5 }} />
-    </button>
+    <NotificationBell onNav={onNav} />
   </header>
 );
 
 const CMD_ITEMS = [
   { kind: "Page", label: "Overview", id: "overview", route: "overview" },
+  { kind: "Page", label: "Inbox", id: "inbox", route: "inbox" },
   { kind: "Page", label: "Repos", id: "repos", route: "repos" },
   { kind: "Page", label: "Findings", id: "findings", route: "findings" },
   { kind: "Page", label: "Repairs", id: "repairs", route: "repairs" },
@@ -159,20 +173,14 @@ const CMD_ITEMS = [
   { kind: "Page", label: "Jobs", id: "jobs", route: "jobs" },
   { kind: "Page", label: "Policies", id: "policies", route: "policies" },
   { kind: "Page", label: "Audit log", id: "audit", route: "audit" },
-  { kind: "Repo", label: "ruslanmv/SelfRepair", id: "R-1045", route: "repo", payload: "R-1045" },
-  { kind: "Repo", label: "agent-matrix/matrix-hub", id: "R-1042", route: "repo", payload: "R-1042" },
-  { kind: "Repo", label: "platform/payments-svc", id: "R-1048", route: "repo", payload: "R-1048" },
-  { kind: "Repo", label: "ruslanmv/HomePilot", id: "R-1046", route: "repo", payload: "R-1046" },
-  { kind: "Repair", label: "PR-2210 · Add pyproject.toml…", id: "PR-2210", route: "repair", payload: "PR-2210" },
-  { kind: "Repair", label: "PR-2207 · LLM-assisted http.Client…", id: "PR-2207", route: "repair", payload: "PR-2207" },
-  { kind: "Job", label: "J-77821 · live · ruslanmv/SelfRepair", id: "J-77821", route: "job", payload: "J-77821" },
-  { kind: "Job", label: "J-77820 · live · platform/payments-svc", id: "J-77820", route: "job", payload: "J-77820" },
-  { kind: "Action", label: "Suppress finding…", id: "act-suppress" },
-  { kind: "Action", label: "Retry job…", id: "act-retry" },
-  { kind: "Action", label: "Approve repair…", id: "act-approve" },
+  { kind: "Page", label: "Connections", id: "connections", route: "connections" },
+  { kind: "Page", label: "Settings", id: "settings", route: "settings" },
+  { kind: "Admin", label: "Users", id: "admin-users", route: "admin-users", admin: true },
+  { kind: "Admin", label: "System", id: "admin-system", route: "admin-system", admin: true },
+  { kind: "Admin", label: "Logs", id: "admin-logs", route: "admin-logs", admin: true },
 ];
 
-export const CommandPalette = ({ open, onClose, onPick }) => {
+export const CommandPalette = ({ open, onClose, onPick, isAdmin = false }) => {
   const [q, setQ] = React.useState("");
   const [active, setActive] = React.useState(0);
   const inputRef = React.useRef(null);
@@ -186,12 +194,13 @@ export const CommandPalette = ({ open, onClose, onPick }) => {
   }, [open]);
 
   const items = React.useMemo(() => {
-    if (!q.trim()) return CMD_ITEMS;
+    const base = CMD_ITEMS.filter((i) => !i.admin || isAdmin);
+    if (!q.trim()) return base;
     const lq = q.toLowerCase();
-    return CMD_ITEMS.filter(
+    return base.filter(
       (i) => i.label.toLowerCase().includes(lq) || i.kind.toLowerCase().includes(lq),
     );
-  }, [q]);
+  }, [q, isAdmin]);
 
   const onKey = (e) => {
     if (e.key === "ArrowDown") {

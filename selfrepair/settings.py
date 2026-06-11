@@ -76,6 +76,20 @@ class Settings(BaseSettings):
     ollabridge_model: str = Field(default="qwen2.5:1.5b", alias="OLLABRIDGE_MODEL")
     ollabridge_timeout: float = Field(default=120.0, alias="OLLABRIDGE_TIMEOUT")
 
+    # Generic Repository Maintenance product (first-wave) configuration.
+    #
+    # SelfRepair is GENERIC: the client is injected via env (Agent-Matrix is
+    # only the first client). These power the `selfrepair-repo` scan/plan/repair
+    # commands and the GitPilot/MatrixLab/OllaBridge contracts.
+    selfrepair_client_id: str = Field(default="agent-matrix", alias="SELFREPAIR_CLIENT_ID")
+    selfrepair_workspace_id: str = Field(default="default", alias="SELFREPAIR_WORKSPACE_ID")
+    selfrepair_coder_provider: str = Field(default="gitpilot", alias="SELFREPAIR_CODER_PROVIDER")
+    selfrepair_sandbox_provider: str = Field(default="matrixlab", alias="SELFREPAIR_SANDBOX_PROVIDER")
+    gitpilot_url: str = Field(default="http://localhost:9000", alias="GITPILOT_URL")
+    matrixlab_url: str = Field(default="http://localhost:8765", alias="MATRIXLAB_URL")
+    selfrepair_planner_model: str = Field(default="repo-planner", alias="SELFREPAIR_PLANNER_MODEL")
+    selfrepair_risk_model: str = Field(default="risk-classifier", alias="SELFREPAIR_RISK_MODEL")
+
     # Status site
     site_base_url: str | None = Field(default=None, alias="SITE_BASE_URL")
     site_title: str = Field(default="SelfRepair Repo", alias="SITE_TITLE")

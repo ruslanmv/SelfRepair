@@ -1,35 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Create Account - RepoGuardian{% endblock %}
-{% block content %}
-<div class="auth-container">
-    <div class="auth-card">
-        <h2>Create your account</h2>
-        <p class="subtitle">Start monitoring your repository fleet</p>
-        {% if error %}
-        <div class="alert alert-error">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/register">
-            <div class="form-group">
-                <label class="form-label" for="username">Username</label>
-                <input class="form-input" type="text" id="username" name="username" required autofocus placeholder="johndoe" minlength="3" maxlength="50">
-            </div>
-            <div class="form-group">
-                <label class="form-label" for="email">Email</label>
-                <input class="form-input" type="email" id="email" name="email" required placeholder="john@company.com">
-            </div>
-            <div class="form-group">
-                <label class="form-label" for="password">Password</label>
-                <input class="form-input" type="password" id="password" name="password" required placeholder="Minimum 8 characters" minlength="8">
-            </div>
-            <div class="form-group">
-                <label class="form-label" for="password_confirm">Confirm Password</label>
-                <input class="form-input" type="password" id="password_confirm" name="password_confirm" required placeholder="Repeat password" minlength="8">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Create Account</button>
-        </form>
-        <div class="auth-footer">
-            Already have an account? <a href="/login">Sign in</a>
-        </div>
+{% block title %}Create account · SelfRepair{% endblock %}
+{% block auth %}
+<div style="text-align:center; margin-bottom:22px;">
+  <div class="brand" style="justify-content:center; font-size:18px;">
+    <span class="logo">SR</span><span>SELFREPAIR</span>
+  </div>
+  <p class="label" style="margin-top:10px;">Create operator account</p>
+</div>
+<div class="panel">
+  {% if error %}<div class="alert err">{{ error }}</div>{% endif %}
+  <form method="POST" action="/register">
+    <div class="field">
+      <label for="username">Username</label>
+      <input class="input" type="text" id="username" name="username" minlength="3" maxlength="32" required />
+      <div class="hint">3–32 characters: letters, numbers, dot, underscore, hyphen.</div>
     </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input class="input" type="email" id="email" name="email" required />
+      <div class="hint">We'll send a verification link to confirm it's yours.</div>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input class="input" type="password" id="password" name="password" minlength="8" required />
+      <div class="hint">At least 8 characters, with a letter and a number.</div>
+    </div>
+    <div class="field">
+      <label for="password_confirm">Confirm password</label>
+      <input class="input" type="password" id="password_confirm" name="password_confirm" minlength="8" required />
+    </div>
+    <button class="btn" type="submit" style="width:100%;">Create account</button>
+  </form>
+  <p class="hint" style="text-align:center; margin-top:14px;">
+    Already registered? <a href="/login">Sign in</a>
+  </p>
 </div>
 {% endblock %}

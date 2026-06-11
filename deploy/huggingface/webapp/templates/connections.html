@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Connections · SelfRepair{% endblock %}
+{% block content %}
+<h1>Connections</h1>
+<p class="muted" style="margin-bottom:20px;">Wire SelfRepair to the generic products. Models are reached through OllaBridge —
+SelfRepair never stores your <span class="mono">HF_TOKEN</span>. Secrets are encrypted at rest.</p>
+
+{% set icons = {'ollabridge': '◇', 'gitpilot': '⌁', 'matrixlab': '🧪'} %}
+{% set hints = {
+  'ollabridge': 'Base URL ends in /v1. Key format ob_test_… or ob_live_….',
+  'gitpilot': 'GitPilot service base URL. Token optional.',
+  'matrixlab': 'MatrixLab sandbox base URL. Token optional.'
+} %}
+
+<div class="grid cols-3">
+{% for c in connections %}
+  <div class="conn-card" data-provider="{{ c.provider }}">
+    <div class="ch">
+      <span class="dot {{ c.status }}" id="dot-{{ c.provider }}"></span>
+      <span class="name">{{ c.label }}</span>
+      <span class="spacer"></span>
+      <span class="pill {{ c.status }}" id="pill-{{ c.provider }}">{{ c.status }}</span>
+    </div>
+    <div class="field">
+      <label>Base URL</label>
+      <input class="input" id="url-{{ c.provider }}" value="{{ c.base_url }}" placeholder="{{ c.default_url }}" />
+    </div>
+    <div class="field">
+      <label>{{ 'API key' if c.provider == 'ollabridge' else 'Token (optional)' }}</label>
+      <input class="input" id="key-{{ c.provider }}" type="password"
+             placeholder="{{ '(saved) ' + c.masked_secret if c.has_secret else ('ob_test_…' if c.provider == 'ollabridge' else '••••') }}" />
+      <div class="hint">{{ hints[c.provider] }}</div>
+    </div>
+    <div class="row-actions">
+      <button class="btn sm" onclick="saveConn('{{ c.provider }}')">Save &amp; test</button>
+      <button class="btn ghost sm" onclick="testConn('{{ c.provider }}')">Test</button>
+    </div>
+    <div class="hint" id="detail-{{ c.provider }}" style="margin-top:10px;">{{ c.detail }}</div>
+  </div>
+{% endfor %}
+</div>
+
+<div class="panel" style="margin-top:20px;">
+  <div class="panel-head">
+    <h2>Pipeline check</h2>
+    <span class="spacer" style="flex:1;"></span>
+    <button class="btn sm" onclick="verifyPipeline()">Verify all</button>
+  </div>
+  <p class="muted" style="margin-top:0;">Probe OllaBridge, GitPilot and MatrixLab together, then run one sample completion
+  through OllaBridge to prove the gateway end-to-end.</p>
+  <div class="row-actions" style="margin-bottom:12px;">
+    <input class="input" id="sample-prompt" style="max-width:480px;" value="Write a minimal pytest health check." />
+    <button class="btn ghost sm" onclick="sampleCompletion()">Run sample completion</button>
+  </div>
+  <pre class="out" id="pipeline-out">Ready. Configure connections above, then verify.</pre>
+</div>
+
+<script>
+function $(id){return document.getElementById(id);}
+function setStatus(p, status, detail){
+  $('pill-'+p).className = 'pill ' + status; $('pill-'+p).textContent = status;
+  $('dot-'+p).className = 'dot ' + status;
+  if(detail !== undefined) $('detail-'+p).textContent = detail;
+}
+async function saveConn(p){
+  setStatus(p,'unknown','Saving…');
+  const fd = new FormData();
+  fd.append('base_url', $('url-'+p).value);
+  fd.append('api_key', $('key-'+p).value);
+  const r = await fetch('/connections/'+p, {method:'POST', body:fd});
+  const d = await r.json();
+  setStatus(p, d.status, d.detail);
+  $('key-'+p).value='';
+}
+async function testConn(p){
+  setStatus(p,'unknown','Testing…');
+  const r = await fetch('/connections/'+p+'/test', {method:'POST'});
+  const d = await r.json();
+  setStatus(p, d.status, d.detail);
+}
+async function verifyPipeline(){
+  $('pipeline-out').textContent = 'Verifying…';
+  const r = await fetch('/api/pipeline/verify', {method:'POST'});
+  const d = await r.json();
+  let out = '';
+  for(const [p, res] of Object.entries(d.providers)){
+    out += '['+res.status.toUpperCase().padEnd(7)+'] '+p+' — '+res.detail+'\n';
+    if(res.extra && res.extra.models && res.extra.models.length) out += '          models: '+res.extra.models.join(', ')+'\n';
+    if(res.extra && res.extra.profiles && res.extra.profiles.length) out += '          profiles: '+res.extra.profiles.join(', ')+'\n';
+    setStatus(p, res.status, res.detail);
+  }
+  $('pipeline-out').textContent = out;
+}
+async function sampleCompletion(){
+  $('pipeline-out').textContent = 'Calling OllaBridge…';
+  const fd = new FormData();
+  fd.append('prompt', $('sample-prompt').value);
+  const r = await fetch('/api/ollabridge/sample', {method:'POST', body:fd});
+  const d = await r.json();
+  $('pipeline-out').textContent = '['+d.status.toUpperCase()+'] '+d.detail+'\n\n'+((d.extra&&d.extra.content)||(d.extra&&d.extra.body)||'');
+}
+</script>
+{% endblock %}

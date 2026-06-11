@@ -1,6 +1,19 @@
 import { Icon, Pill, Sparkline } from "../components/atoms.jsx";
-import { spark } from "../data/mock.js";
 import { useDashboard } from "../hooks/useDashboard.js";
+
+// Decorative sparkline series generator (deterministic from a seed). These
+// are purely visual flourishes on the KPI cards — the headline numbers
+// beside them come from the real /v1/dashboard API, never from mock data.
+const spark = (seed) => {
+  const out = [];
+  let v = 50 + (seed % 20);
+  for (let i = 0; i < 24; i++) {
+    v += Math.sin(seed + i * 0.7) * 8 + (i % 3 === 0 ? 6 : -3);
+    v = Math.max(8, Math.min(96, v));
+    out.push(v);
+  }
+  return out;
+};
 
 function percent(rate) {
   if (rate === null || rate === undefined || Number.isNaN(rate)) return "—";

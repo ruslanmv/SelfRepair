@@ -1,20 +1,17 @@
 #!/bin/bash
+set -e
 
-echo "=== RepoGuardian Enterprise Web UI ==="
-echo "Starting on port ${PORT:-7860}..."
-echo "Working directory: $(pwd)"
-echo "Contents: $(ls -la)"
+echo "=============================================="
+echo "  SelfRepair — maintenance console (HF Space)"
+echo "  Port: ${PORT:-7860}"
+echo "=============================================="
 
-# Ensure writable directories
-mkdir -p "${WORK_DIR:-/tmp/repoguardian/work}"
-mkdir -p "${STATE_DIR:-/tmp/repoguardian/state}"
-mkdir -p "${STATUS_SITE_DIR:-/tmp/repoguardian/status-site}"
+mkdir -p "${SELFREPAIR_DB_DIR:-/tmp/selfrepair}"
 
 echo "Checking webapp module..."
-python3 -c "from webapp.main import app; print('Module loaded OK')" 2>&1 || echo "Module import failed!"
+python3 -c "from webapp.main import app; print('Module loaded OK')"
 
 echo "Starting uvicorn..."
-# Start the FastAPI web application
 exec python3 -m uvicorn webapp.main:app \
     --host "${HOST:-0.0.0.0}" \
     --port "${PORT:-7860}" \
