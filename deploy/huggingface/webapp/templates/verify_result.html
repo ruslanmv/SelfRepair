@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Email verification · SelfRepair{% endblock %}
+{% block auth %}
+<div style="text-align:center; margin-bottom:22px;">
+  <div class="brand" style="justify-content:center; font-size:18px;">
+    <span class="logo">SR</span><span>SELFREPAIR</span>
+  </div>
+</div>
+<div class="panel">
+  {% if ok %}
+    <div class="alert ok">Your email is verified. You can sign in now.</div>
+    <a class="btn" href="/login?verified=1" style="width:100%;">Continue to sign in</a>
+  {% else %}
+    <div class="alert err">This verification link is invalid or has expired.</div>
+    <form method="POST" action="/resend-verification" style="margin-top:12px;">
+      <div class="field">
+        <label for="email">Email</label>
+        <input class="input" type="email" id="email" name="email" placeholder="you@example.com" required />
+      </div>
+      <button class="btn ghost sm" type="submit">Resend verification email</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

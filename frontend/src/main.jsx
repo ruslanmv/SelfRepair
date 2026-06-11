@@ -7,6 +7,7 @@ import "./styles/ui.css";
 import "./styles/features.css";
 
 import App from "./App.jsx";
+import { ErrorBoundary } from "./components/StateScreens.jsx";
 import { makeQueryClient } from "./api/queryClient.js";
 
 // One QueryClient for the whole SPA. Re-instantiating per render would
@@ -15,8 +16,10 @@ const queryClient = makeQueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

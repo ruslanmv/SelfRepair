@@ -4,6 +4,7 @@
 
 ### Added
 
+- **HF Space console (`ruslanmv/selfrepair`)**: one unified React UI; email-verified auth (Neon Postgres + Upstash Redis + Mailtrap), admin panel with a protected **root** superuser, control-plane intake (`POST /v1/plans`) + Inbox/notifications, and a worker that attaches a **GitPilot dry-run patch preview** to each maintenance report.
 - **End-to-end real backend behind the SPA**. Every operator-console
   surface now reads from the real `selfrepair.api` `/v1` endpoints; the
   previous `SR_DATA` mock stays in-tree only for offline dev mode.

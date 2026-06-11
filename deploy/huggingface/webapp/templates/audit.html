@@ -1,34 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Audit Log - RepoGuardian{% endblock %}
+{% block title %}Audit · SelfRepair{% endblock %}
 {% block content %}
-<div class="container">
-    <div class="page-header">
-        <div>
-            <h1>Audit Log</h1>
-            <p>Administrative activity history</p>
-        </div>
-    </div>
-    <div class="card">
-        {% if logs %}
-        <div class="table-wrapper">
-            <table>
-                <thead><tr><th>Timestamp</th><th>Action</th><th>User ID</th><th>IP Address</th><th>Details</th></tr></thead>
-                <tbody>
-                    {% for log in logs %}
-                    <tr>
-                        <td style="font-size: 13px; color: var(--text-secondary);">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '-' }}</td>
-                        <td><span class="badge badge-unknown">{{ log.action }}</span></td>
-                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">{{ (log.user_id or '-')[:12] }}</td>
-                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">{{ log.ip_address or '-' }}</td>
-                        <td style="font-size: 13px;">{{ log.details or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="empty-state"><h3>No audit entries</h3><p>Activity will appear here as users interact with the platform.</p></div>
-        {% endif %}
-    </div>
+<h1>Audit log</h1>
+<p class="muted" style="margin-bottom:20px;">Recent operator and system events.</p>
+<div class="panel">
+  {% if logs %}
+  <table>
+    <thead><tr><th>When</th><th>Action</th><th>Detail</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for log in logs %}
+      <tr>
+        <td class="mono">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '—' }}</td>
+        <td class="mono">{{ log.action }}</td>
+        <td>{{ log.details or '' }}</td>
+        <td class="mono">{{ log.ip_address or '' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin:0;">No audit events yet.</p>
+  {% endif %}
 </div>
 {% endblock %}
