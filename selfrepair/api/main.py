@@ -44,6 +44,7 @@ from selfrepair.api.routes import (
     policies,
     repairs,
     repos,
+    routines,
     schedules,
     webhooks,
     webhooks_gitlab,
@@ -135,6 +136,7 @@ def build_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(policies.router)
     app.include_router(schedules.router)
+    app.include_router(routines.router)
     app.include_router(integrations.router)
     app.include_router(metrics.router)
     app.include_router(ci.router)

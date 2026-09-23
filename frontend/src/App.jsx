@@ -25,6 +25,7 @@ import { Overview } from "./surfaces/Overview.jsx";
 import { Policies } from "./surfaces/Policies.jsx";
 import { RepairDetail } from "./surfaces/RepairDetail.jsx";
 import { Repairs } from "./surfaces/Repairs.jsx";
+import { Routines } from "./surfaces/Routines.jsx";
 import { RepoDetail } from "./surfaces/RepoDetail.jsx";
 import { Repos } from "./surfaces/Repos.jsx";
 import { Settings } from "./surfaces/Settings.jsx";
@@ -142,6 +143,7 @@ export default function App() {
         { label: shortId(route.payload) || "Repair" },
       ];
     if (route.name === "jobs") return [home, { label: "Jobs" }];
+    if (route.name === "routines") return [home, { label: "Routines" }];
     if (route.name === "job")
       return [
         home,
@@ -173,6 +175,7 @@ export default function App() {
       repair: "repairs",
       jobs: "jobs",
       job: "jobs",
+      routines: "routines",
       policies: "policies",
       audit: "audit",
       connections: "connections",
@@ -256,6 +259,8 @@ export default function App() {
             onOpenAudit={openAudit}
           />
         );
+      case "routines":
+        return <Routines />;
       case "policies":
         return <Policies />;
       case "audit":

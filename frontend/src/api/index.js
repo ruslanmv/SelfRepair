@@ -11,5 +11,6 @@ export * as dashboard from "./dashboard.js";
 export * as audit from "./audit.js";
 export * as policies from "./policies.js";
 export * as schedules from "./schedules.js";
+export * as routines from "./routines.js";
 export * as integrations from "./integrations.js";
 export * as issues from "./issues.js";
