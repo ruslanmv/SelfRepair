@@ -240,7 +240,12 @@ def _model_from_env() -> Any:
             "SELFREPAIR_REVIEW_MODEL is not set. "
             "The deterministic engine remains available."
         )
-    base = os.getenv("SELFREPAIR_OLLABRIDGE_URL", "").strip().rstrip("/")
+    base = ""
+    for name in ("SELFREPAIR_OLLABRIDGE_URL", "OLLABRIDGE_BASE_URL", "OPENAI_BASE_URL"):
+        candidate = os.getenv(name, "").strip().rstrip("/")
+        if candidate:
+            base = candidate
+            break
     if not base:
         raise EngineUnavailable(
             "SELFREPAIR_OLLABRIDGE_URL is not set. "
@@ -255,7 +260,17 @@ def _model_from_env() -> Any:
             "langchain-openai is not installed; the OpenAI-compatible "
             "OllaBridge adapter cannot be constructed."
         ) from exc
-    key = os.getenv("SELFREPAIR_OLLABRIDGE_API_KEY", "ollabridge")
+    key = ""
+    for name in ("SELFREPAIR_OLLABRIDGE_API_KEY", "OLLABRIDGE_API_KEY", "OPENAI_API_KEY"):
+        candidate = os.getenv(name, "").strip()
+        if candidate:
+            key = candidate
+            break
+    if not key:
+        raise EngineUnavailable(
+            "SELFREPAIR_OLLABRIDGE_API_KEY is not set. "
+            "The deterministic engine remains available."
+        )
     return ChatOpenAI(
         model=model_name,
         base_url=f"{base}/v1",

@@ -556,31 +556,32 @@ class SqlReviewStore:
             if run is None:
                 raise KeyError(run_id)
             for finding in findings:
-                session.add(
-                    ReviewFinding(
-                        org_id=run.org_id,
-                        review_run_id=run_id,
-                        fingerprint=finding.fingerprint,
-                        category=finding.category,
-                        severity=finding.severity,
-                        confidence=finding.confidence,
-                        file_path=finding.file_path,
-                        start_line=finding.start_line,
-                        end_line=finding.end_line,
-                        side=finding.side,
-                        title=finding.title,
-                        description=finding.description,
-                        evidence=finding.evidence,
-                        suggested_fix=finding.suggested_fix,
-                        source=finding.source,
-                        validation_state=finding.validation_state,
-                        resolution_state=finding.resolution_state,
-                    )
-                )
-            try:
-                await session.commit()
-            except IntegrityError:
-                await session.rollback()
+                try:
+                    async with session.begin_nested():
+                        session.add(
+                            ReviewFinding(
+                                org_id=run.org_id,
+                                review_run_id=run_id,
+                                fingerprint=finding.fingerprint,
+                                category=finding.category,
+                                severity=finding.severity,
+                                confidence=finding.confidence,
+                                file_path=finding.file_path,
+                                start_line=finding.start_line,
+                                end_line=finding.end_line,
+                                side=finding.side,
+                                title=finding.title,
+                                description=finding.description,
+                                evidence=finding.evidence,
+                                suggested_fix=finding.suggested_fix,
+                                source=finding.source,
+                                validation_state=finding.validation_state,
+                                resolution_state=finding.resolution_state,
+                            )
+                        )
+                except IntegrityError:
+                    continue
+            await session.commit()
 
     async def list_findings(self, run_id: uuid.UUID) -> list[FindingRecord]:
         async with self._sessionmaker() as session:

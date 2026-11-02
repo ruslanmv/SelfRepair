@@ -36,7 +36,7 @@ async def gitlab_webhook(
     x_gitlab_event: str = Header(default=""),
     x_gitlab_token: str | None = Header(default=None),
 ) -> dict[str, str]:
-    secret = os.getenv("GITLAB_WEBHOOK_SECRET")
+    secret = os.getenv("GITLAB_WEBHOOK_SECRET") or os.getenv("SELFREPAIR_GITLAB_WEBHOOK_SECRET")
     if not secret:
         logger.error("GITLAB_WEBHOOK_SECRET is not configured")
         raise HTTPException(

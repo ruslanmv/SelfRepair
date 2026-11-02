@@ -114,12 +114,7 @@ async def _dispatch(ctx: dict[str, Any], event: Any) -> str:
         engine = DeepAgentsReviewEngine()
     if engine is None:
         engine = DeterministicReviewEngine()
-    provider = ctx.get("diff_provider")
-    if provider is None:
-        from selfrepair.reviewer.diff_provider import provider_from_env
-
-        provider = provider_from_env()
-    publisher = ctx.get("review_publisher") or RecordingPublisher()
+    provider, publisher = await _io(ctx, event, repo)
     job_try = int(ctx.get("job_try") or 1)
     try:
         outcome, _run = await review_change(
@@ -136,6 +131,60 @@ async def _dispatch(ctx: dict[str, Any], event: Any) -> str:
         logger.warning("review transient failure delivery=%s", event.delivery_id)
         raise
     return outcome
+
+
+async def rerun_review(ctx: dict[str, Any], review_id: str) -> str:
+    """Re-execute a stored run. `job_try` is at least 2 so the delivery claim is reused."""
+    import uuid
+
+    from selfrepair.reviewer.events import event_from_run
+
+    store = store_from_ctx(ctx)
+    if store is None:
+        return "tracked"
+    run = await store.get_run(uuid.UUID(review_id))
+    if run is None or run.status not in {"incomplete", "failed", "queued"}:
+        return "ignored"
+    full_name = str((run.metadata or {}).get("repo_full_name") or "")
+    if not full_name:
+        await store.update_run(
+            run.id,
+            status="incomplete",
+            conclusion="action_required",
+            error="retry context missing",
+            completed_at=None,
+        )
+        return "incomplete"
+    installation = (run.metadata or {}).get("installation_id")
+    repo = await store.resolve_repo(
+        provider=run.provider,
+        full_name=full_name,
+        installation_id=int(installation) if isinstance(installation, int) else None,
+    )
+    if repo is None or repo.ambiguous:
+        return "ignored"
+    event = event_from_run(run, repo)
+    retry_ctx = dict(ctx)
+    retry_ctx["job_try"] = max(int(ctx.get("job_try") or 1), 2)
+    return await _dispatch(retry_ctx, event)
+
+
+async def _io(ctx: dict[str, Any], event: Any, repo: Any) -> tuple[Any, Any]:
+    """Use injected clients in tests. Otherwise mint tokens and publish for real."""
+    provider = ctx.get("diff_provider")
+    publisher = ctx.get("review_publisher")
+    if provider is not None and publisher is not None:
+        return provider, publisher
+    from selfrepair.reviewer.runtime import build_review_io
+
+    live_provider, live_publisher = await build_review_io(
+        event, repo, app=ctx.get("github_app")
+    )
+    if provider is None:
+        provider = live_provider
+    if publisher is None:
+        publisher = live_publisher if ctx.get("diff_provider") is None else RecordingPublisher()
+    return provider, publisher
 
 
 def _gitlab_delivery_id(payload: dict[str, Any]) -> str:

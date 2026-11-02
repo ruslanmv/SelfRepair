@@ -127,6 +127,9 @@ async def review_change(
             repo_id=repo.repo_id, installation_id=event.installation_id
         )
     try:
+        announce = getattr(publisher, "announce", None)
+        if announce is not None:
+            await announce(event=event, run=run)
         diff = await diff_provider.collect(event, repo)
         report = _run_engines(event, diff, config, engine)
         validated = validate_findings(diff, report.findings) if diff.files else []
@@ -153,13 +156,23 @@ async def review_change(
             summary=summary,
             already_published=already,
         )
+        publication_errors = [
+            str(item.get("error") or item.get("status"))
+            for item in publications
+            if item.get("status") in {"failed", "unpublished"}
+        ]
+        if publication_errors and conclusion == "success":
+            conclusion = "action_required"
+            incomplete = incomplete or "publication failed"
+            status = "incomplete"
+            summary = f"{summary}\nPublication failed. This check was not sent."
         for item in publications:
             await store.add_publication(
                 org_id=repo.org_id,
                 run_id=run.id,
                 provider=event.provider,
                 kind=item["kind"],
-                status="published" if item.get("status") in {"published", "recorded"} else "failed",
+                status=_publication_status(item.get("status")),
                 external_id=item.get("external_id"),
                 fingerprints=item.get("fingerprints") or [],
                 payload=item.get("body") or {},
@@ -173,7 +186,7 @@ async def review_change(
             summary=summary,
             engine=report.engine,
             model_id=report.model_id,
-            error=incomplete,
+            error=incomplete or ("; ".join(publication_errors) or None),
             completed_at=_now(),
         )
         return ("reviewed" if status == "completed" else "incomplete"), run
@@ -270,7 +283,14 @@ async def _ensure_run(
         status=status,
         sender_login=event.sender_login,
         commit_shas=[item.sha for item in event.commits],
-        metadata={"action": event.action, "branch": event.branch},
+        metadata={
+            "action": event.action,
+            "branch": event.branch,
+            "base_branch": event.base_branch,
+            "project_id": event.project_id,
+            "installation_id": event.installation_id,
+            "repo_full_name": event.repo_full_name,
+        },
         started_at=_now(),
     )
     return await store.insert_run(record)
@@ -299,6 +319,12 @@ def _branch_match(name: str, pattern: str) -> bool:
     if any(token in pattern for token in "*?["):
         return matches(name, pattern)
     return name == pattern
+
+
+def _publication_status(raw: Any) -> str:
+    if raw in {"published", "recorded", "failed", "unpublished"}:
+        return str(raw)
+    return "failed"
 
 
 def _now() -> datetime:

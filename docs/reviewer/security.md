@@ -26,9 +26,13 @@ Review agents do not receive the GitHub token. The publisher holds it. Prompts a
 
 A missing diff, a truncated diff, a model timeout, or an unavailable engine finishes as `action_required` or, when a blocking deterministic finding exists, `failure`. Neither path reports `success`. Transient GitHub 429 responses raise `TransientReviewError` so Arq can retry the same job (`job_try` > 1 is allowed past the delivery claim).
 
+## Publication
+
+The worker mints `GitHubAppAuth.installation_token` when `GITHUB_APP_ID` and a private key are set and the repository has an installation id. `SELFREPAIR_GITHUB_TOKEN` is only the fallback. A missing credential is stored as `unpublished` and a clean review is `action_required`, not a green check. Pull-request diffs come from the base repository's files API, so a fork is not cloned.
+
 ## Threats not closed here
 
 - A live model can still produce a plausible, wrong comment on a line that is in the diff. Line checks stop fabricated locations; they do not stop a wrong explanation of a real line.
-- Compare-API credentials in `SELFREPAIR_GITHUB_TOKEN` are process environment, not a per-request installation mint. Wire `GitHubAppAuth.installation_token` before using this on private installations in production.
 - GitLab line discussions are a single note plus a commit status, not a per-line discussion thread.
 - The bundled benchmark does not measure Deep Agents.
+- Unit tests use fake HTTP transports. They do not prove a live GitHub, GitLab, or OllaBridge call.

@@ -179,10 +179,28 @@ async def retry_review(request: Request, ctx: CtxDep, review_id: uuid.UUID) -> d
     run = await _owned_run(request, ctx.org_id, review_id)
     if run.status not in {"incomplete", "failed", "queued"}:
         raise HTTPException(status_code=409, detail="review is not retryable")
-    updated = await store.update_run(
-        run.id, status="queued", conclusion=None, error=None, completed_at=None
-    )
-    return {"outcome": "queued", "review": _public_run(updated)}
+    queue = getattr(request.app.state, "queue", None)
+    if queue is not None:
+        updated = await store.update_run(
+            run.id, status="queued", conclusion=None, error=None, completed_at=None
+        )
+        await queue.enqueue_job("retry_review", str(review_id))
+        return {"outcome": "queued", "review": _public_run(updated)}
+    from selfrepair.reviewer.dispatcher import rerun_review
+
+    ctx: dict[str, Any] = {"review_store": store, "job_try": 2}
+    diff_provider = getattr(request.app.state, "review_diff_provider", None)
+    publisher = getattr(request.app.state, "review_publisher", None)
+    if diff_provider is not None:
+        ctx["diff_provider"] = diff_provider
+    if publisher is not None:
+        ctx["review_publisher"] = publisher
+    app_github = getattr(request.app.state, "github_app", None)
+    if app_github is not None:
+        ctx["github_app"] = app_github
+    outcome = await rerun_review(ctx, str(review_id))
+    refreshed = await store.get_run(review_id)
+    return {"outcome": outcome, "review": _public_run(refreshed or run)}
 
 
 @router.get("/repos/{repo_id}/review-settings")

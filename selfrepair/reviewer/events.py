@@ -21,6 +21,39 @@ class EventRejected(Exception):
         self.reason = reason
 
 
+def event_from_run(run: Any, repo: Any) -> ReviewEvent:
+    """Rebuild a review event from a stored run so a retry uses the same SHAs."""
+    meta = dict(run.metadata or {})
+    kind = run.event_type if run.event_type in {"push", "pull_request", "merge_request"} else "push"
+    provider = run.provider if run.provider in {"github", "gitlab"} else "github"
+    ref = run.ref or f"refs/heads/{meta.get('branch') or repo.default_branch}"
+    branch = str(meta.get("branch") or ref.rsplit("/", 1)[-1])
+    project_id = meta.get("project_id")
+    installation = meta.get("installation_id")
+    if installation is None:
+        installation = repo.installation_id
+    return ReviewEvent(
+        provider=provider,
+        kind=kind,
+        action="retry",
+        delivery_id=run.delivery_id or f"retry-{run.id}",
+        repo_full_name=repo.full_name,
+        installation_id=int(installation) if isinstance(installation, int) else None,
+        project_id=int(project_id) if isinstance(project_id, int) else None,
+        ref=ref,
+        branch=branch,
+        base_branch=meta.get("base_branch"),
+        base_sha=run.base_sha,
+        head_sha=run.head_sha,
+        forced=run.forced,
+        pr_number=run.pr_number,
+        from_fork=run.from_fork,
+        sender_login=run.sender_login,
+        default_branch=repo.default_branch,
+        commits=[CommitInfo(sha=sha) for sha in run.commit_shas],
+    )
+
+
 def github_event(event_type: str, delivery_id: str, payload: dict[str, Any]) -> ReviewEvent:
     """Parse a GitHub `push` or `pull_request` payload."""
     repo = payload.get("repository") or {}

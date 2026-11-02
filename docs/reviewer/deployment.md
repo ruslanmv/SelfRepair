@@ -23,7 +23,14 @@
 
 4. Point the GitHub App webhook at `POST /webhooks/github` with `GITHUB_WEBHOOK_SECRET`. Subscribe to `push` and `pull_request`. The app needs contents read, pull requests write, and checks write on the installation before publication can succeed. Metadata read is required for compare.
 
-5. Set `SELFREPAIR_GITHUB_TOKEN` to an installation token (or a fine-scoped token) so the compare API can fetch the patch. Without it, a non-empty push is stored as an incomplete review and the check is `action_required`. The worker does not fall back to `clone_stage`.
+5. Give the API and the worker the GitHub App credentials so each review mints an installation token:
+
+   ```bash
+   export GITHUB_APP_ID=123456
+   export GITHUB_APP_PRIVATE_KEY="$(cat /run/secrets/github-app.pem)"
+   ```
+
+   `SELFREPAIR_GITHUB_TOKEN` is accepted when the app is not configured. Without either credential, a non-empty push is stored as an incomplete review and nothing is posted to GitHub. The worker does not fall back to `clone_stage`. Pull requests are read with the pulls files API on the base repository, including fork pull requests. The worker posts `SelfRepair / Review` as `in_progress` before analysis and the final conclusion after it. `retry_review` is an Arq job; `POST /v1/reviews/{id}/retry` enqueues it when Redis is up.
 
 6. For GitLab, set `GITLAB_WEBHOOK_SECRET` and subscribe to Merge Request Hooks at `POST /webhooks/gitlab`. Issue hooks are unchanged.
 

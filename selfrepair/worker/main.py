@@ -84,10 +84,16 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["pipeline"] = build_pipeline()
     ctx["settings"] = settings
     ctx["stage_extra"] = {}
-    logger.info("worker started")
+    from selfrepair.reviewer.credentials import credential_status, github_app_from_env
+
+    ctx["github_app"] = github_app_from_env()
+    logger.info("worker started reviewer_credentials=%s", credential_status())
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    app = ctx.get("github_app")
+    if app is not None:
+        await app.aclose()
     logger.info("worker shutting down")
 
 
@@ -190,6 +196,13 @@ async def ingest_gitlab_webhook(
     )
 
 
+async def retry_review(ctx: dict[str, Any], review_id: str) -> str:
+    """Re-run one stored review. The API enqueues this; it does not call GitHub itself."""
+    from selfrepair.reviewer.dispatcher import rerun_review
+
+    return await rerun_review(ctx, review_id)
+
+
 from selfrepair.issues.sync import (  # noqa: E402  (kept after handlers for read order)
     scheduled_sync_external_issues,
     sync_external_issues,
@@ -201,9 +214,13 @@ class WorkerSettings:
         process_job,
         ingest_webhook,
         ingest_gitlab_webhook,
+        retry_review,
         sync_external_issues,
         scheduled_sync_external_issues,
     ]
     on_startup = startup
     on_shutdown = shutdown
+    # Reviews can run for the configured engine budget (default 600s). Arq's
+    # own default of 300s would kill a live review before it can publish.
+    job_timeout = get_worker_settings().job_timeout_seconds
     redis_settings = RedisSettings.from_dsn(get_worker_settings().redis_url)

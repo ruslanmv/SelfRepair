@@ -52,7 +52,7 @@ A push and a later delivery for the same base and head share one run. Event kind
 | `deterministic` | Always, including when Deep Agents is selected | None |
 | `deepagents` | `reviewer.engine: deepagents` and the extra is installed | OllaBridge via `ChatOpenAI` |
 
-`deepagents` 0.7.32 (`requires-python >=3.11,<4`) is called through `create_deep_agent` with specialist subagents, `response_format=DeepAgentReport`, and filesystem permissions that allow read and deny write. No sandbox backend is attached, so the framework does not register `execute`. Snapshot tools only read the diff. If the library, `SELFREPAIR_REVIEW_MODEL`, or `SELFREPAIR_OLLABRIDGE_URL` is missing, the engine raises `EngineUnavailable`. Deterministic findings are kept and the check conclusion is `action_required` unless a blocking finding already fails it.
+`deepagents` 0.7.32 (`requires-python >=3.11,<4`) is called through `create_deep_agent` with specialist subagents, `response_format=DeepAgentReport`, and filesystem permissions that allow read and deny write. No sandbox backend is attached, so the framework does not register `execute`. Snapshot tools only read the diff. If the library, `SELFREPAIR_REVIEW_MODEL`, or an OllaBridge URL (`SELFREPAIR_OLLABRIDGE_URL`, otherwise `OLLABRIDGE_BASE_URL` or `OPENAI_BASE_URL`) is missing, the engine raises `EngineUnavailable`. Deterministic findings are kept and the check conclusion is `action_required` unless a blocking finding already fails it. The worker posts the check with an installation token from `GitHubAppAuth` when the app is configured. GitLab merge requests use the compare API and a commit status plus one note.
 
 The coordinator does not choose the check conclusion.
 

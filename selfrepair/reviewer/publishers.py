@@ -35,8 +35,27 @@ class Publisher(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class HttpxTransport:
+    """Small HTTP client used by the live diff provider and publishers."""
+
+    def __init__(self, timeout: float = 30.0) -> None:
+        self._timeout = timeout
+
+    async def get(self, url: str, headers: dict[str, str]) -> Any:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            return await client.get(url, headers=headers)
+
+    async def post(self, url: str, json: dict[str, Any], headers: dict[str, str]) -> Any:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            return await client.post(url, json=json, headers=headers)
+
+
 class RecordingPublisher:
-    """Captures publication payloads. Used by tests and when no token is configured."""
+    """Captures publication payloads. Tests inject this so nothing leaves the process."""
 
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
@@ -62,6 +81,51 @@ class RecordingPublisher:
         for item in payloads:
             item["status"] = "recorded"
         self.sent.extend(payloads)
+        return payloads
+
+    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+        """Record the in-progress check. Tests can see it; GitHub is not called."""
+        del event
+        self.sent.append(
+            {
+                "kind": "check",
+                "status": "recorded",
+                "body": {"name": CHECK_NAME, "head_sha": run.head_sha, "status": "in_progress"},
+                "fingerprints": [],
+            }
+        )
+
+
+class UnpublishedPublisher:
+    """Used when credentials are missing. The review is stored and the check is not sent."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+        del event, run
+
+    async def publish(
+        self,
+        *,
+        event: ReviewEvent,
+        run: RunRecord,
+        findings: list[FindingRecord],
+        conclusion: Conclusion,
+        summary: str,
+        already_published: set[str],
+    ) -> list[dict[str, Any]]:
+        payloads = build_payloads(
+            event=event,
+            run=run,
+            findings=findings,
+            conclusion=conclusion,
+            summary=summary,
+            already_published=already_published,
+        )
+        for item in payloads:
+            item["status"] = "unpublished"
+            item["error"] = self._reason
         return payloads
 
 
@@ -284,6 +348,112 @@ class GitHubHttpPublisher:
                 item["external_id"] = str(body.get("id") or "")
             results.append(item)
         return results
+
+    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+        """Post an in-progress check so branch protection does not see a missing check."""
+        url = f"{self._api}/repos/{event.repo_full_name}/check-runs"
+        body = {
+            "name": CHECK_NAME,
+            "head_sha": run.head_sha,
+            "status": "in_progress",
+            "output": {
+                "title": "Review in progress",
+                "summary": "SelfRepair is reviewing this revision.",
+            },
+        }
+        response = await self._transport.post(url, json=body, headers=_headers_for(self._token))
+        _raise_if_rate_limited(response)
+
+
+class GitLabHttpPublisher:
+    """Post a commit status and one merge-request note. Does not approve or merge."""
+
+    def __init__(self, transport: Any, token: str, api_url: str = "https://gitlab.com/api/v4") -> None:
+        self._transport = transport
+        self._token = token
+        self._api = api_url.rstrip("/")
+
+    async def publish(
+        self,
+        *,
+        event: ReviewEvent,
+        run: RunRecord,
+        findings: list[FindingRecord],
+        conclusion: Conclusion,
+        summary: str,
+        already_published: set[str],
+    ) -> list[dict[str, Any]]:
+        if event.project_id is None:
+            return [
+                {
+                    "kind": "status",
+                    "status": "unpublished",
+                    "error": "gitlab project id missing",
+                    "fingerprints": [],
+                    "body": {},
+                }
+            ]
+        payloads = build_payloads(
+            event=event,
+            run=run,
+            findings=findings,
+            conclusion=conclusion,
+            summary=summary,
+            already_published=already_published,
+        )
+        headers = {"PRIVATE-TOKEN": self._token}
+        results: list[dict[str, Any]] = []
+        project = event.project_id
+        for item in payloads:
+            if item["kind"] == "status":
+                sha = item["body"]["sha"]
+                url = f"{self._api}/projects/{project}/statuses/{sha}"
+            elif item["kind"] == "discussion" and event.pr_number is not None:
+                url = f"{self._api}/projects/{project}/merge_requests/{event.pr_number}/notes"
+            else:
+                continue
+            response = await self._transport.post(url, json=item["body"], headers=headers)
+            _raise_if_rate_limited(response)
+            status = getattr(response, "status_code", 0)
+            if status >= 400:
+                item["status"] = "failed"
+                item["error"] = getattr(response, "text", "")[:500]
+            else:
+                item["status"] = "published"
+                body = response.json() if hasattr(response, "json") else {}
+                item["external_id"] = str(body.get("id") or "")
+            results.append(item)
+        return results
+
+    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+        """Post a pending commit status before analysis finishes."""
+        if event.project_id is None:
+            return
+        url = f"{self._api}/projects/{event.project_id}/statuses/{run.head_sha}"
+        body = {
+            "sha": run.head_sha,
+            "state": "pending",
+            "context": CHECK_NAME,
+            "description": "SelfRepair is reviewing this revision.",
+        }
+        response = await self._transport.post(
+            url, json=body, headers={"PRIVATE-TOKEN": self._token}
+        )
+        _raise_if_rate_limited(response)
+
+
+def _headers_for(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _raise_if_rate_limited(response: Any) -> None:
+    status = getattr(response, "status_code", 0)
+    if status == 429 or (status == 403 and _rate_limited(response)):
+        raise TransientReviewError(f"provider rate limited: {status}")
 
 
 def _rate_limited(response: Any) -> bool:
