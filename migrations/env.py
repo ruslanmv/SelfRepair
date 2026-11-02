@@ -12,6 +12,7 @@ from selfrepair.persistence import models  # noqa: F401  -- registers tables on 
 from selfrepair.persistence import console_models  # noqa: F401  -- console tables
 from selfrepair.persistence import auth_models  # noqa: F401  -- auth tables
 from selfrepair.persistence import routine_models  # noqa: F401  -- routine tables
+from selfrepair.persistence import review_models  # noqa: F401  -- review tables
 
 config = context.config
 

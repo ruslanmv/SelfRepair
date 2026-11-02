@@ -1,0 +1,249 @@
+"""`/v1/reviews` — list, inspect, trigger, and retry code reviews.
+
+Tenancy comes from `CtxDep`. A caller cannot read another organization's
+runs. Triggering a review does not approve a pull request or merge anything.
+"""
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
+
+from selfrepair.api.deps import DEFAULT_LIMIT, MAX_LIMIT, CtxDep
+from selfrepair.config.repo_config import ReviewerConfig
+from selfrepair.reviewer.diff import parse_unified_diff
+from selfrepair.reviewer.engines.deterministic import DeterministicReviewEngine
+from selfrepair.reviewer.publishers import RecordingPublisher
+from selfrepair.reviewer.schemas import ReviewEvent
+from selfrepair.reviewer.service import StaticDiffProvider, review_change
+from selfrepair.reviewer.settings import resolve_reviewer_config
+from selfrepair.reviewer.store import ReviewStore, SqlReviewStore
+
+router = APIRouter(prefix="/v1", tags=["reviews"])
+
+
+class TriggerReview(BaseModel):
+    """Manual review of a pinned SHA range. The diff is supplied by the caller."""
+
+    repo_full_name: str = Field(min_length=3, max_length=255)
+    provider: str = "github"
+    branch: str = "main"
+    base_sha: str = Field(min_length=7, max_length=64)
+    head_sha: str = Field(min_length=7, max_length=64)
+    unified_diff: str = ""
+    pr_number: int | None = None
+
+
+class ReviewSettingsBody(BaseModel):
+    """A partial or full reviewer config. Unknown keys are rejected."""
+
+    config: dict[str, Any]
+
+
+def _store(request: Request) -> ReviewStore:
+    override = getattr(request.app.state, "review_store", None)
+    if override is not None:
+        return override
+    from selfrepair.api.deps import get_app_sessionmaker
+
+    return SqlReviewStore(get_app_sessionmaker())
+
+
+def _public_run(run: Any) -> dict[str, Any]:
+    return {
+        "id": str(run.id),
+        "org_id": str(run.org_id),
+        "repo_id": str(run.repo_id),
+        "provider": run.provider,
+        "event_type": run.event_type,
+        "base_sha": run.base_sha,
+        "head_sha": run.head_sha,
+        "ref": run.ref,
+        "pr_number": run.pr_number,
+        "engine": run.engine,
+        "model_id": run.model_id,
+        "policy_version": run.policy_version,
+        "status": run.status,
+        "conclusion": run.conclusion,
+        "summary": run.summary,
+        "error": run.error,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
+@router.get("/reviews")
+async def list_reviews(
+    request: Request,
+    ctx: CtxDep,
+    repo_id: uuid.UUID | None = None,
+    limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+) -> dict[str, Any]:
+    """List review runs for the caller's organization."""
+    store = _store(request)
+    rows = await store.list_runs(org_id=ctx.org_id, repo_id=repo_id, limit=limit)
+    return {"items": [_public_run(row) for row in rows]}
+
+
+@router.get("/reviews/{review_id}")
+async def get_review(request: Request, ctx: CtxDep, review_id: uuid.UUID) -> dict[str, Any]:
+    """Return one review run. A run from another organization is a 404."""
+    run = await _owned_run(request, ctx.org_id, review_id)
+    return _public_run(run)
+
+
+@router.get("/reviews/{review_id}/findings")
+async def get_findings(request: Request, ctx: CtxDep, review_id: uuid.UUID) -> dict[str, Any]:
+    """Return validated findings for one review run."""
+    await _owned_run(request, ctx.org_id, review_id)
+    findings = await _store(request).list_findings(review_id)
+    return {
+        "items": [
+            {
+                "fingerprint": item.fingerprint,
+                "category": item.category,
+                "severity": item.severity,
+                "confidence": item.confidence,
+                "file_path": item.file_path,
+                "start_line": item.start_line,
+                "end_line": item.end_line,
+                "title": item.title,
+                "description": item.description,
+                "evidence": item.evidence,
+                "suggested_fix": item.suggested_fix,
+                "source": item.source,
+                "validation_state": item.validation_state,
+            }
+            for item in findings
+        ]
+    }
+
+
+@router.post("/reviews/trigger", status_code=status.HTTP_201_CREATED)
+async def trigger_review(
+    request: Request, ctx: CtxDep, body: TriggerReview
+) -> dict[str, Any]:
+    """Review a caller-supplied diff for a repository in this organization.
+
+    This does not publish to GitHub unless the process has a review publisher
+    configured. The default publisher records the payload only.
+    """
+    store = _store(request)
+    repo = await store.resolve_repo(
+        provider=body.provider, full_name=body.repo_full_name, installation_id=None
+    )
+    if repo is None or repo.ambiguous or repo.org_id != ctx.org_id:
+        raise HTTPException(status_code=404, detail="repository not found")
+    org_settings, repo_settings = await store.settings_for(
+        org_id=repo.org_id, repo_id=repo.repo_id
+    )
+    config = resolve_reviewer_config(
+        config_yaml=repo.config_yaml,
+        org_settings=org_settings,
+        repo_settings=repo_settings,
+    )
+    config = config.model_copy(update={"enabled": True, "engine": "deterministic"})
+    event = ReviewEvent(
+        provider="github" if body.provider == "github" else "gitlab",
+        kind="pull_request" if body.pr_number else "push",
+        delivery_id=f"manual-{uuid.uuid4()}",
+        repo_full_name=body.repo_full_name,
+        branch=body.branch,
+        base_sha=body.base_sha,
+        head_sha=body.head_sha,
+        pr_number=body.pr_number,
+        ref=f"refs/heads/{body.branch}",
+    )
+    files = parse_unified_diff(body.unified_diff) if body.unified_diff else []
+    publisher = getattr(request.app.state, "review_publisher", None) or RecordingPublisher()
+    outcome, run = await review_change(
+        store=store,
+        repo=repo,
+        event=event,
+        config=config,
+        diff_provider=StaticDiffProvider(files),
+        engine=DeterministicReviewEngine(),
+        publisher=publisher,
+    )
+    if run is None:
+        raise HTTPException(status_code=400, detail=outcome)
+    return {"outcome": outcome, "review": _public_run(run)}
+
+
+@router.post("/reviews/{review_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+async def retry_review(request: Request, ctx: CtxDep, review_id: uuid.UUID) -> dict[str, Any]:
+    """Mark an incomplete run queued again. Does not invent a new conclusion."""
+    store = _store(request)
+    run = await _owned_run(request, ctx.org_id, review_id)
+    if run.status not in {"incomplete", "failed", "queued"}:
+        raise HTTPException(status_code=409, detail="review is not retryable")
+    updated = await store.update_run(
+        run.id, status="queued", conclusion=None, error=None, completed_at=None
+    )
+    return {"outcome": "queued", "review": _public_run(updated)}
+
+
+@router.get("/repos/{repo_id}/review-settings")
+async def get_repo_settings(
+    request: Request, ctx: CtxDep, repo_id: uuid.UUID
+) -> dict[str, Any]:
+    """Return the effective reviewer config for one repository."""
+    store = _store(request)
+    org_settings, repo_settings = await store.settings_for(org_id=ctx.org_id, repo_id=repo_id)
+    # The repo file is not on this request. API layers still merge.
+    config = resolve_reviewer_config(
+        config_yaml=None, org_settings=org_settings, repo_settings=repo_settings
+    )
+    return {"repo_id": str(repo_id), "config": config.model_dump()}
+
+
+@router.put("/repos/{repo_id}/review-settings")
+async def put_repo_settings(
+    request: Request, ctx: CtxDep, repo_id: uuid.UUID, body: ReviewSettingsBody
+) -> dict[str, Any]:
+    """Replace the per-repository reviewer override. `enabled` stays opt-in."""
+    config = _validate_settings(body.config)
+    saved = await _store(request).put_settings(
+        org_id=ctx.org_id, repo_id=repo_id, config=config.model_dump()
+    )
+    return {"repo_id": str(repo_id), "config": saved}
+
+
+@router.get("/review-settings")
+async def get_org_settings(request: Request, ctx: CtxDep) -> dict[str, Any]:
+    """Return the organization default reviewer config."""
+    org_settings, _repo = await _store(request).settings_for(
+        org_id=ctx.org_id, repo_id=uuid.UUID(int=0)
+    )
+    config = resolve_reviewer_config(
+        config_yaml=None, org_settings=org_settings, repo_settings=None
+    )
+    return {"config": config.model_dump()}
+
+
+@router.put("/review-settings")
+async def put_org_settings(
+    request: Request, ctx: CtxDep, body: ReviewSettingsBody
+) -> dict[str, Any]:
+    """Replace the organization default. Repositories can still override it."""
+    config = _validate_settings(body.config)
+    saved = await _store(request).put_settings(
+        org_id=ctx.org_id, repo_id=None, config=config.model_dump()
+    )
+    return {"config": saved}
+
+
+async def _owned_run(request: Request, org_id: uuid.UUID, review_id: uuid.UUID) -> Any:
+    run = await _store(request).get_run(review_id)
+    if run is None or run.org_id != org_id:
+        raise HTTPException(status_code=404, detail="review not found")
+    return run
+
+
+def _validate_settings(raw: dict[str, Any]) -> ReviewerConfig:
+    try:
+        return ReviewerConfig.model_validate(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

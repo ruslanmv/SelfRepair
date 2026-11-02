@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-_HANDLED_EVENTS = frozenset({"Issue Hook", "Note Hook"})
+_HANDLED_EVENTS = frozenset({"Issue Hook", "Note Hook", "Merge Request Hook"})
 
 
 @router.post("/gitlab")

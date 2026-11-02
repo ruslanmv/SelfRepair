@@ -107,6 +107,90 @@ class CIGuardianConfig(BaseModel):
     safety: CISafety = Field(default_factory=CISafety)
 
 
+class ReviewerTriggers(BaseModel):
+    """Which webhook families may start a review. Ignored while `enabled` is false."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    push: bool = True
+    pull_request: bool = True
+    merge_request: bool = True
+
+
+class ReviewerBranches(BaseModel):
+    """Branch filter. A push is reviewed when its branch matches `include` and not `exclude`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    include: list[str] = Field(default_factory=lambda: ["main", "master", "develop"])
+    exclude: list[str] = Field(default_factory=list)
+
+
+class ReviewerAgents(BaseModel):
+    """Which Deep Agents roles to register. The deterministic engine ignores this."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    security: bool = True
+    correctness: bool = True
+    architecture: bool = True
+    testing: bool = True
+
+
+class ReviewerPublish(BaseModel):
+    """What to publish, and which severities may fail the check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inline_comments: bool = True
+    publish_summary: bool = True
+    block_on: list[SeverityLiteral] = Field(default_factory=lambda: ["critical", "high"])
+
+
+class ReviewerExecution(BaseModel):
+    """Hard limits for a review run. Read-only cannot be turned off."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    read_only: Literal[True] = True
+    sandbox_enabled: bool = True
+    max_runtime_seconds: int = Field(default=600, ge=30, le=3600)
+    max_tokens: int = Field(default=80_000, ge=1_000, le=2_000_000)
+    max_usd: float = Field(default=1.0, ge=0.0, le=100.0)
+
+
+class ReviewerRemediation(BaseModel):
+    """Optional GitPilot patch preparation. Auto-merge stays off."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    provider: Literal["gitpilot"] = "gitpilot"
+    require_human_approval: bool = True
+    auto_merge: Literal[False] = False
+
+
+class ReviewerConfig(BaseModel):
+    """Per-repository reviewer section.
+
+    `enabled` defaults to false so existing repositories do not start reviews,
+    and `engine` defaults to the deterministic engine so an opt-in still does
+    not call a model until an admin selects `deepagents`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    triggers: ReviewerTriggers = Field(default_factory=ReviewerTriggers)
+    branches: ReviewerBranches = Field(default_factory=ReviewerBranches)
+    engine: Literal["deterministic", "deepagents"] = "deterministic"
+    agents: ReviewerAgents = Field(default_factory=ReviewerAgents)
+    review: ReviewerPublish = Field(default_factory=ReviewerPublish)
+    execution: ReviewerExecution = Field(default_factory=ReviewerExecution)
+    remediation: ReviewerRemediation = Field(default_factory=ReviewerRemediation)
+    policy_version: str = "1"
+
+
 class RepoConfig(BaseModel):
     """Resolved config for a single repository.
 
@@ -127,6 +211,7 @@ class RepoConfig(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     notifications: Notifications = Field(default_factory=Notifications)
     ci_guardian: CIGuardianConfig = Field(default_factory=CIGuardianConfig)
+    reviewer: ReviewerConfig = Field(default_factory=ReviewerConfig)
 
     @field_validator("deny_paths")
     @classmethod

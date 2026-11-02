@@ -122,9 +122,9 @@ async def ingest_webhook(
 ) -> str:
     """Route a GitHub webhook to the right subsystem.
 
-    CI Guardian events go through `selfrepair.ci.dispatcher`. The original
-    repo-lifecycle events (push, pull_request, installation, ...) keep
-    their existing log-only behaviour until later batches wire repos.
+    CI Guardian events go through `selfrepair.ci.dispatcher`. Push and
+    pull_request events go through `selfrepair.reviewer.dispatcher`.
+    Installation events stay log-only.
     """
     if event_type in _CI_EVENTS:
         from selfrepair.ci.dispatcher import dispatch_ci_event
@@ -146,6 +146,16 @@ async def ingest_webhook(
             payload=payload,
         )
 
+    if event_type in {"push", "pull_request"}:
+        from selfrepair.reviewer.dispatcher import dispatch_github_review_event
+
+        return await dispatch_github_review_event(
+            ctx=ctx,
+            event_type=event_type,
+            delivery_id=delivery_id,
+            payload=payload,
+        )
+
     repo_full_name = (payload.get("repository") or {}).get("full_name")
     logger.info(
         "webhook ingested event=%s delivery=%s repo=%s",
@@ -161,11 +171,18 @@ async def ingest_gitlab_webhook(
     event_type: str,
     payload: dict[str, Any],
 ) -> str:
-    """Route a GitLab webhook through the Issue Watch dispatcher.
+    """Route a GitLab webhook.
 
-    Phase-1 only handles `Issue Hook` and `Note Hook`. Anything else logs
-    + returns `ignored` so adding more event types upstream doesn't crash.
+    Merge Request Hooks go to the reviewer. Issue and note hooks stay with
+    Issue Watch. Anything else is ignored by that dispatcher.
     """
+    if event_type == "Merge Request Hook":
+        from selfrepair.reviewer.dispatcher import dispatch_gitlab_review_event
+
+        return await dispatch_gitlab_review_event(
+            ctx=ctx, event_type=event_type, payload=payload
+        )
+
     from selfrepair.issues.dispatcher import dispatch_gitlab_issue_event
 
     return await dispatch_gitlab_issue_event(
