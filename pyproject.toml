@@ -66,7 +66,9 @@ server = [
 huggingface = ["huggingface_hub>=0.28.0"]
 gitlab = ["python-gitlab>=4.0.0"]
 ollabridge = ["httpx>=0.27.0"]
-all = ["selfrepair-repo[dev,server,gitlab,ollabridge,huggingface]"]
+# Deep Agents review harness. The deterministic engine does not need this extra.
+reviewer = ["deepagents>=0.7.32,<0.8", "langchain-openai>=0.3"]
+all = ["selfrepair-repo[dev,server,gitlab,ollabridge,huggingface,reviewer]"]
 
 [project.urls]
 Homepage = "https://github.com/ruslanmv/SelfRepair"

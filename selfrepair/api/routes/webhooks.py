@@ -53,7 +53,7 @@ async def github_webhook(
 ) -> dict[str, str]:
     body = await request.body()
 
-    secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET") or os.getenv("SELFREPAIR_GITHUB_WEBHOOK_SECRET")
     if not secret:
         logger.error("GITHUB_WEBHOOK_SECRET is not configured")
         raise HTTPException(

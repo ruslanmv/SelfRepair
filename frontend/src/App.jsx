@@ -26,6 +26,7 @@ import { Policies } from "./surfaces/Policies.jsx";
 import { RepairDetail } from "./surfaces/RepairDetail.jsx";
 import { Repairs } from "./surfaces/Repairs.jsx";
 import { Routines } from "./surfaces/Routines.jsx";
+import { Reviews } from "./surfaces/Reviews.jsx";
 import { RepoDetail } from "./surfaces/RepoDetail.jsx";
 import { Repos } from "./surfaces/Repos.jsx";
 import { Settings } from "./surfaces/Settings.jsx";
@@ -144,6 +145,13 @@ export default function App() {
       ];
     if (route.name === "jobs") return [home, { label: "Jobs" }];
     if (route.name === "routines") return [home, { label: "Routines" }];
+    if (route.name === "reviews") return [home, { label: "Reviews" }];
+    if (route.name === "review")
+      return [
+        home,
+        { label: "Reviews", onClick: () => navigate("reviews") },
+        { label: `Review ${shortId(route.payload)}` },
+      ];
     if (route.name === "job")
       return [
         home,
@@ -176,6 +184,8 @@ export default function App() {
       jobs: "jobs",
       job: "jobs",
       routines: "routines",
+      reviews: "reviews",
+      review: "reviews",
       policies: "policies",
       audit: "audit",
       connections: "connections",
@@ -261,6 +271,10 @@ export default function App() {
         );
       case "routines":
         return <Routines />;
+      case "reviews":
+        return <Reviews onNav={navigate} />;
+      case "review":
+        return <Reviews reviewId={route.payload} onNav={navigate} />;
       case "policies":
         return <Policies />;
       case "audit":
