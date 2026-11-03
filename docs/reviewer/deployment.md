@@ -30,9 +30,9 @@
    export GITHUB_APP_PRIVATE_KEY="$(cat /run/secrets/github-app.pem)"
    ```
 
-   `SELFREPAIR_GITHUB_TOKEN` is accepted when the app is not configured. Without either credential, a non-empty push is stored as an incomplete review and nothing is posted to GitHub. The worker does not fall back to `clone_stage`. Pull requests are read with the pulls files API on the base repository, including fork pull requests. The worker posts `SelfRepair / Review` as `in_progress` before analysis and the final conclusion after it. `retry_review` is an Arq job; `POST /v1/reviews/{id}/retry` enqueues it when Redis is up.
+   `SELFREPAIR_GITHUB_TOKEN`, then `GITHUB_TOKEN`, is accepted when the app is not configured. Do not leave an unrelated `GITHUB_TOKEN` in the worker environment: the worker will use it to read diffs and post checks. Without either credential, a non-empty push is stored as an incomplete review and nothing is posted to GitHub. The worker does not fall back to `clone_stage`. Pull requests are read with the pulls files API on the base repository, including fork pull requests. The worker posts `SelfRepair / Review` as `in_progress` before analysis and the final conclusion after it. `retry_review` is an Arq job; `POST /v1/reviews/{id}/retry` enqueues it when Redis is up.
 
-6. For GitLab, set `GITLAB_WEBHOOK_SECRET` and subscribe to Merge Request Hooks at `POST /webhooks/gitlab`. Issue hooks are unchanged.
+6. For GitLab, set `GITLAB_WEBHOOK_SECRET` (or `SELFREPAIR_GITLAB_WEBHOOK_SECRET`) and subscribe to Merge Request Hooks at `POST /webhooks/gitlab`. Issue hooks are unchanged. The API forwards `X-Gitlab-Event-UUID` to the worker as the delivery id for merge requests, so a redelivery is `duplicate`. GitHub accepts `GITHUB_WEBHOOK_SECRET` or `SELFREPAIR_GITHUB_WEBHOOK_SECRET`.
 
 ## Model
 
@@ -57,11 +57,24 @@ The check name is `SelfRepair / Review`.
 ## Remediation
 
 ```bash
-export GITPILOT_URL=http://gitpilot:9000
-export GITPILOT_API_TOKEN=...
+export SELFREPAIR_GITPILOT_URL=http://gitpilot:8000   # or GITPILOT_URL
+export SELFREPAIR_GITPILOT_TOKEN=...                  # or GITPILOT_API_TOKEN
 ```
 
-`build_repair_plan` emits the `POST /repair` body. Draft PRs require `remediation.enabled` and `human_approved=True`. The client is `selfrepair.coders.gitpilot_client.GitPilotClient`. There is no auto-merge path.
+Compose passes these to both the API and the worker. Tasks are created with `POST /v1/reviews/{id}/remediations` and run on the worker as `remediate_review`. Draft PRs require `remediation.enabled`, an identified caller, and `approve: true`; GitPilot must also have `GITPILOT_DRAFT_PR_ENABLED`. The client is `selfrepair.coders.gitpilot_client.GitPilotClient`. There is no auto-merge path.
+
+## Console
+
+The console has a **Reviews** page: run list, run detail with findings, retry for incomplete runs, a per-finding GitPilot dry run, the remediation task list, and the organization default settings.
+
+## Verifying the database
+
+```bash
+SELFREPAIR_TEST_DATABASE_URL=postgresql+psycopg://postgres@localhost:5432/postgres \
+  python -m pytest tests/integration/test_review_postgres.py
+```
+
+The test creates a throwaway database, runs `alembic upgrade head`, round-trips a run, findings, a publication, supersession, settings, and remediation metadata through `SqlReviewStore`, downgrades to `0006_routines`, upgrades again, and drops the database. It is skipped when the variable is unset.
 
 ## Repository inventory
 
