@@ -1,9 +1,6 @@
 """Deep Agents harness boundaries and the GitPilot repair contract."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
 from selfrepair.config.repo_config import ReviewerConfig
@@ -229,11 +226,9 @@ def test_remediation_refuses_disabled_forks_and_auto_merge() -> None:
 
 
 def test_plan_matches_the_gitpilot_repair_schema() -> None:
-    root = Path("/agent/repos/gitpilot")
-    if not (root / "gitpilot" / "repair" / "schema.py").exists():
-        pytest.skip("gitpilot checkout is not available")
-    sys.path.insert(0, str(root))
-    from gitpilot.repair.schema import RepairRequest
+    from tests.unit.reviewer.test_remediation_integration import _gitpilot_schema
+
+    RepairRequest = _gitpilot_schema().RepairRequest  # noqa: N806
 
     finding = FindingRecord(
         fingerprint="a" * 64,

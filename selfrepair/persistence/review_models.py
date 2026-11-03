@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -104,7 +105,6 @@ class ReviewFinding(Base):
         UUID(as_uuid=True),
         ForeignKey("review_run.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     category: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -124,6 +124,8 @@ class ReviewFinding(Base):
 
     __table_args__ = (
         UniqueConstraint("review_run_id", "fingerprint", name="uq_review_finding_fingerprint"),
+        # Names match migration 0007 so autogenerate does not propose renames.
+        Index("ix_review_finding_run", "review_run_id"),
         Index("ix_review_finding_severity", "review_run_id", "severity"),
     )
 
@@ -141,7 +143,6 @@ class ReviewPublication(Base):
         UUID(as_uuid=True),
         ForeignKey("review_run.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -156,6 +157,7 @@ class ReviewPublication(Base):
         UniqueConstraint(
             "review_run_id", "provider", "kind", name="uq_review_publication_target"
         ),
+        Index("ix_review_publication_run", "review_run_id"),
     )
 
 
@@ -195,4 +197,18 @@ class ReviewSettingsRow(Base):
 
     __table_args__ = (
         Index("ix_review_settings_repo", "org_id", "repo_id"),
+        # One org default and one override per repository (migration 0007).
+        Index(
+            "uq_review_settings_org_default",
+            "org_id",
+            unique=True,
+            postgresql_where=text("repo_id IS NULL"),
+        ),
+        Index(
+            "uq_review_settings_repo",
+            "org_id",
+            "repo_id",
+            unique=True,
+            postgresql_where=text("repo_id IS NOT NULL"),
+        ),
     )
