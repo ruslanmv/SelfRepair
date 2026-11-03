@@ -53,6 +53,12 @@ class HttpxTransport:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             return await client.post(url, json=json, headers=headers)
 
+    async def patch(self, url: str, json: dict[str, Any], headers: dict[str, str]) -> Any:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            return await client.patch(url, json=json, headers=headers)
+
 
 class RecordingPublisher:
     """Captures publication payloads. Tests inject this so nothing leaves the process."""
@@ -95,6 +101,24 @@ class RecordingPublisher:
             }
         )
 
+    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+        """Record the terminal check a failed review would send."""
+        del event
+        self.sent.append(
+            {
+                "kind": "check",
+                "status": "recorded",
+                "body": {
+                    "name": CHECK_NAME,
+                    "head_sha": run.head_sha,
+                    "status": "completed",
+                    "conclusion": "action_required",
+                    "output": {"title": "Review did not complete", "summary": reason[:1000]},
+                },
+                "fingerprints": [],
+            }
+        )
+
 
 class UnpublishedPublisher:
     """Used when credentials are missing. The review is stored and the check is not sent."""
@@ -104,6 +128,9 @@ class UnpublishedPublisher:
 
     async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
         del event, run
+
+    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+        del event, run, reason
 
     async def publish(
         self,
@@ -300,6 +327,9 @@ class GitHubHttpPublisher:
         self._transport = transport
         self._token = token
         self._api = api_url.rstrip("/")
+        # Check run created by `announce`, per review run. `publish` and
+        # `abandon` complete that same check instead of creating a second one.
+        self._announced: dict[str, str] = {}
 
     async def publish(
         self,
@@ -327,6 +357,14 @@ class GitHubHttpPublisher:
         results: list[dict[str, Any]] = []
         for item in payloads:
             if item["kind"] == "check":
+                check_id = self._announced.pop(str(run.id), None)
+                if check_id is not None:
+                    response = await self._complete_check(
+                        event, check_id, item["body"], headers
+                    )
+                    item = self._record(item, response, fallback_id=check_id)
+                    results.append(item)
+                    continue
                 url = f"{self._api}/repos/{event.repo_full_name}/check-runs"
             elif item["kind"] == "review" and event.pr_number is not None:
                 url = (
@@ -363,6 +401,63 @@ class GitHubHttpPublisher:
         }
         response = await self._transport.post(url, json=body, headers=_headers_for(self._token))
         _raise_if_rate_limited(response)
+        if getattr(response, "status_code", 0) < 400:
+            check_id = _response_id(response)
+            if check_id:
+                self._announced[str(run.id)] = check_id
+
+    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+        """Give the announced check a terminal result when the review failed.
+
+        Without this a crash or a transient error after `announce` leaves the
+        check `in_progress` forever, and each retry adds another one. Best
+        effort: a failure here must not hide the original error.
+        """
+        check_id = self._announced.pop(str(run.id), None)
+        if check_id is None:
+            return
+        body = {
+            "name": CHECK_NAME,
+            "status": "completed",
+            "conclusion": "action_required",
+            "output": {
+                "title": "Review did not complete",
+                "summary": (
+                    "SelfRepair could not finish reviewing this revision "
+                    f"({reason[:200]}). A retry posts a new result."
+                ),
+            },
+        }
+        try:
+            await self._complete_check(event, check_id, body, _headers_for(self._token))
+        except Exception:  # noqa: BLE001 - best effort, see docstring
+            return
+
+    async def _complete_check(
+        self, event: ReviewEvent, check_id: str, body: dict[str, Any], headers: dict[str, str]
+    ) -> Any:
+        """PATCH the announced check. `head_sha` is not an update field."""
+        url = f"{self._api}/repos/{event.repo_full_name}/check-runs/{check_id}"
+        update = {key: value for key, value in body.items() if key != "head_sha"}
+        patch = getattr(self._transport, "patch", None)
+        if patch is None:  # transports without PATCH keep the old behaviour
+            return await self._transport.post(
+                f"{self._api}/repos/{event.repo_full_name}/check-runs", json=body, headers=headers
+            )
+        return await patch(url, json=update, headers=headers)
+
+    @staticmethod
+    def _record(item: dict[str, Any], response: Any, *, fallback_id: str) -> dict[str, Any]:
+        status = getattr(response, "status_code", 0)
+        if status == 429 or status == 403 and _rate_limited(response):
+            raise TransientReviewError(f"github rate limited: {status}")
+        if status >= 400:
+            item["status"] = "failed"
+            item["error"] = getattr(response, "text", "")[:500]
+        else:
+            item["status"] = "published"
+            item["external_id"] = _response_id(response) or fallback_id
+        return item
 
 
 class GitLabHttpPublisher:
@@ -440,6 +535,14 @@ class GitLabHttpPublisher:
             url, json=body, headers={"PRIVATE-TOKEN": self._token}
         )
         _raise_if_rate_limited(response)
+
+
+def _response_id(response: Any) -> str:
+    try:
+        body = response.json() if hasattr(response, "json") else {}
+    except Exception:  # noqa: BLE001 - a non-JSON body has no id
+        return ""
+    return str((body or {}).get("id") or "") if isinstance(body, dict) else ""
 
 
 def _headers_for(token: str) -> dict[str, str]:

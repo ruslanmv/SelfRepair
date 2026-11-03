@@ -53,3 +53,9 @@ reviewer:
 Pushes are filtered on the branch that moved. Pull requests and merge requests are filtered on the target branch. `selfrepair/*` branches and the `selfrepair` / `selfrepair[bot]` sender are ignored so a repair push does not review itself.
 
 `policy_version` is part of the run identity. Changing it reviews the same SHAs again under the new policy.
+
+## Layering
+
+Lowest precedence first: code defaults, organization settings, the repository `.selfrepair.yml` `reviewer` section, then the per-repository API override. Each layer overrides only the fields it sets. A repository file with only `enabled: true` keeps the organization's `engine` and `review.block_on`. The file is still validated in full, so `auto_merge: true` or an unknown key is rejected. `PUT /v1/review-settings` and `PUT /v1/repos/{repo_id}/review-settings` store only the fields in the request body.
+
+Rows saved before this rule stored every field. Save them again to drop the defaults they pinned.

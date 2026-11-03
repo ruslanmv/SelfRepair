@@ -118,18 +118,30 @@ async def test_missing_credentials_do_not_record_a_successful_check(
     assert all(item["status"] == "unpublished" for item in store.publications)
 
 
-@pytest.mark.asyncio
-async def test_pull_request_diff_uses_the_base_repository_files_api() -> None:
-    transport = _Transport(
-        [
-            {
-                "filename": "app.py",
-                "status": "modified",
-                "patch": "@@ -1 +1,2 @@\n+password = \"supersecretvalue\"\n",
-            }
-        ]
-    )
-    event = ReviewEvent(
+class _Routes:
+    """GET transport that answers per URL suffix and records the calls."""
+
+    def __init__(self, routes: dict[str, tuple[int, object]]) -> None:
+        self.routes = routes
+        self.calls: list[str] = []
+
+    async def get(self, url: str, headers: dict[str, str]) -> _Response:
+        self.calls.append(url)
+        for suffix, (status, body) in self.routes.items():
+            if url.split("?")[0].endswith(suffix):
+                return _Response(status, body)
+        return _Response(404, {"message": "Not Found"})
+
+
+_PATCH_FILE = {
+    "filename": "app.py",
+    "status": "modified",
+    "patch": "@@ -1 +1,2 @@\n+password = \"supersecretvalue\"\n",
+}
+
+
+def _pr_event() -> ReviewEvent:
+    return ReviewEvent(
         provider="github",
         kind="pull_request",
         delivery_id="pr",
@@ -140,11 +152,41 @@ async def test_pull_request_diff_uses_the_base_repository_files_api() -> None:
         pr_number=7,
         from_fork=True,
     )
-    diff = await GitHubCompareProvider("ghs_test", transport).collect(event, binding())
-    assert transport.calls[0][0] == "GET"
-    assert "/pulls/7/files" in transport.calls[0][1]
-    assert diff.source == "github-pull-files"
+
+
+@pytest.mark.asyncio
+async def test_pull_request_diff_is_pinned_to_the_event_revision() -> None:
+    """`/pulls/{n}/files` is the PR *now*; compare by SHA is the event's revision."""
+    transport = _Routes({f"/compare/{'a' * 40}...{'b' * 40}": (200, {"files": [_PATCH_FILE]})})
+    diff = await GitHubCompareProvider("ghs_test", transport).collect(_pr_event(), binding())
+    assert len(transport.calls) == 1
+    assert "/compare/" in transport.calls[0] and "/pulls/" not in transport.calls[0]
+    assert diff.source == "github-compare"
     assert diff.files[0].path == "app.py"
+
+
+@pytest.mark.asyncio
+async def test_pull_files_fallback_only_when_the_head_has_not_moved() -> None:
+    same_head = _Routes(
+        {
+            "/pulls/7": (200, {"head": {"sha": "b" * 40}}),
+            "/pulls/7/files": (200, [_PATCH_FILE]),
+        }
+    )
+    diff = await GitHubCompareProvider("ghs_test", same_head).collect(_pr_event(), binding())
+    assert diff.source == "github-pull-files"
+    assert diff.files[0].path == "app.py" and diff.error is None
+
+    moved = _Routes(
+        {
+            "/pulls/7": (200, {"head": {"sha": "c" * 40}}),
+            "/pulls/7/files": (200, [_PATCH_FILE]),
+        }
+    )
+    diff = await GitHubCompareProvider("ghs_test", moved).collect(_pr_event(), binding())
+    assert not diff.files
+    assert "head moved" in (diff.error or "")
+    assert not any(url.split("?")[0].endswith("/files") for url in moved.calls)
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,7 @@ from selfrepair.reviewer.engines.deterministic import DeterministicReviewEngine
 from selfrepair.reviewer.publishers import RecordingPublisher
 from selfrepair.reviewer.schemas import ReviewEvent
 from selfrepair.reviewer.service import StaticDiffProvider, review_change
-from selfrepair.reviewer.settings import resolve_reviewer_config
+from selfrepair.reviewer.settings import explicit_settings, resolve_reviewer_config
 from selfrepair.reviewer.store import ReviewStore, SqlReviewStore
 
 router = APIRouter(prefix="/v1", tags=["reviews"])
@@ -292,8 +292,10 @@ async def put_repo_settings(
 ) -> dict[str, Any]:
     """Replace the per-repository reviewer override. `enabled` stays opt-in."""
     config = _validate_settings(body.config)
+    # Store only what the caller set, so an override of `enabled` does not
+    # also pin every other field to its code default over the org setting.
     saved = await _store(request).put_settings(
-        org_id=ctx.org_id, repo_id=repo_id, config=config.model_dump()
+        org_id=ctx.org_id, repo_id=repo_id, config=explicit_settings(config)
     )
     return {"repo_id": str(repo_id), "config": saved}
 
@@ -317,7 +319,7 @@ async def put_org_settings(
     """Replace the organization default. Repositories can still override it."""
     config = _validate_settings(body.config)
     saved = await _store(request).put_settings(
-        org_id=ctx.org_id, repo_id=None, config=config.model_dump()
+        org_id=ctx.org_id, repo_id=None, config=explicit_settings(config)
     )
     return {"config": saved}
 

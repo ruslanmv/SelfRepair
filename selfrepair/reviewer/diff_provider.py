@@ -1,4 +1,4 @@
-"""Fetch a GitHub compare diff without cloning onto the worker.
+"""Fetch a revision-pinned diff without cloning onto the worker.
 
 The existing clone stage is a depth-1 checkout of the default branch and
 cannot see a push `before` SHA. This provider uses the compare API. A missing
@@ -47,29 +47,62 @@ class GitHubCompareProvider:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        if event.kind == "pull_request" and event.pr_number is not None:
-            url = (
-                f"{self._api}/repos/{event.repo_full_name}/pulls/"
-                f"{event.pr_number}/files?per_page=100"
-            )
-            source = "github-pull-files"
-        else:
-            source = "github-compare"
+        # Always the revision-pinned compare first, pull requests included.
+        # `/pulls/{n}/files` describes the PR as it is *now*, so a queued or
+        # retried event would store and publish a newer revision's findings
+        # under `event.head_sha`. Fork PR commits are in the base repository's
+        # network (refs/pull/N/head), so compare by SHA works for them too.
         response = await self._get(url, headers)
+        if (
+            getattr(response, "status_code", 0) == 404
+            and event.kind == "pull_request"
+            and event.pr_number is not None
+        ):
+            return await self._pull_files_if_head_matches(event, headers)
         failed = _http_failure(response, source="github")
         if failed is not None:
             return failed
         body = response.json()
-        if isinstance(body, list):
-            payload = body
-            page_full = len(body) >= 100
-        else:
-            payload = body.get("files") or []
-            page_full = False
-        files = parse_github_files(payload)
-        limited = limit_diff(files)
-        limited.source = source
-        if page_full:
+        payload = body.get("files") or []
+        limited = limit_diff(parse_github_files(payload))
+        limited.source = "github-compare"
+        if len(payload) >= 300:  # compare lists at most 300 files
+            limited.truncated = True
+        return limited
+
+    async def _pull_files_if_head_matches(
+        self, event: ReviewEvent, headers: dict[str, str]
+    ) -> DiffSet:
+        """Fallback for a PR whose SHAs compare cannot resolve.
+
+        The files API is not pinned to a revision, so it is used only when the
+        pull request's current head is still the event's head. Otherwise the
+        result would belong to a different commit, and the run stays
+        incomplete; the newer head has its own event and its own run.
+        """
+        base = f"{self._api}/repos/{event.repo_full_name}/pulls/{event.pr_number}"
+        pr = await self._get(base, headers)
+        failed = _http_failure(pr, source="github")
+        if failed is not None:
+            return failed
+        current = ((pr.json() or {}).get("head") or {}).get("sha")
+        if current != event.head_sha:
+            return DiffSet(
+                source="github-pull-files",
+                error=(
+                    f"pull request head moved to {str(current)[:12]}; "
+                    f"not reviewing {event.head_sha[:12]} with a newer diff"
+                ),
+            )
+        response = await self._get(f"{base}/files?per_page=100", headers)
+        failed = _http_failure(response, source="github")
+        if failed is not None:
+            return failed
+        body = response.json()
+        payload = body if isinstance(body, list) else []
+        limited = limit_diff(parse_github_files(payload))
+        limited.source = "github-pull-files"
+        if len(payload) >= 100:
             limited.truncated = True
         return limited
 
