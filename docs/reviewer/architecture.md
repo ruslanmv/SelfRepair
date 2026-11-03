@@ -73,6 +73,8 @@ metadata.remediations[] task "queued"  ──► Arq remediate_review
 
 The coordinator does not choose the check conclusion.
 
+The engines run on a worker thread (`asyncio.to_thread`), so a slow model call does not block other worker jobs. Deep Agents runs on a daemon thread with a hard deadline (`execution.max_runtime_seconds`); at the deadline the review continues without it, and the abandoned call is discarded when its HTTP timeout ends it.
+
 ## Console
 
 `frontend/src/surfaces/Reviews.jsx` lists `/v1/reviews`, opens a run with its findings and remediation tasks, retries incomplete runs, sends a single finding to GitPilot as a dry run, and edits the organization default config. Approval of a draft PR is API-only.

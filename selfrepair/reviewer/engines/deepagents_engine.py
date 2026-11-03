@@ -193,8 +193,14 @@ def build_harness(*, model: Any, config: ReviewerConfig, diff: DiffSet) -> Any:
 
 
 def _snapshot_tools(diff: DiffSet) -> list[Any]:
-    """Tools that can read the diff snapshot and nothing else."""
-    files = {item.path: item.patch for item in diff.files}
+    """Tools that can read the diff snapshot and nothing else.
+
+    The snapshot is redacted once, here, with the same rules as the prompt.
+    Tool output goes to the model provider exactly like the prompt does, so a
+    raw patch here would send a committed credential upstream; searching the
+    raw text would also let a model confirm a secret one guess at a time.
+    """
+    files = {item.path: redact(item.patch).text for item in diff.files}
 
     def read_snapshot(path: str) -> str:
         """Read a file that is part of the review diff. Path traversal is denied."""
@@ -282,20 +288,38 @@ def _model_from_env() -> Any:
 
 
 def _invoke(agent: Any, prompt: str, timeout_seconds: int) -> Any:
-    import concurrent.futures
+    """Run the agent with a hard deadline.
 
-    def _call() -> Any:
-        return agent.invoke(
-            {"messages": [{"role": "user", "content": prompt}]},
-            config={"recursion_limit": 30},
-        )
+    The call runs on a daemon thread and the caller waits on a queue, so the
+    deadline returns control on time. A ``ThreadPoolExecutor`` context would
+    not: leaving it calls ``shutdown(wait=True)`` and blocks until the stalled
+    model call finishes. A thread cannot be killed, so a timed-out call may
+    keep running in the background until the HTTP client's own timeout ends
+    it; its result is discarded.
+    """
+    import queue
+    import threading
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_call)
+    box: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+    def _call() -> None:
         try:
-            return future.result(timeout=timeout_seconds)
-        except concurrent.futures.TimeoutError as exc:
-            raise TimeoutError("deep agent timed out") from exc
+            box.put((True, agent.invoke(
+                {"messages": [{"role": "user", "content": prompt}]},
+                config={"recursion_limit": 30},
+            )))
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            box.put((False, exc))
+
+    worker = threading.Thread(target=_call, name="selfrepair-deep-agent", daemon=True)
+    worker.start()
+    try:
+        ok, value = box.get(timeout=timeout_seconds)
+    except queue.Empty as exc:
+        raise TimeoutError("deep agent timed out") from exc
+    if not ok:
+        raise value
+    return value
 
 
 def _parse(raw: Any, version_detail: str) -> ReviewReport:

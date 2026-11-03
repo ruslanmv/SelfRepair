@@ -71,8 +71,24 @@ def test_snapshot_tools_reject_traversal_and_host_paths() -> None:
     assert read_snapshot("../secrets.env") == "denied"
     assert read_snapshot("/etc/passwd") == "denied"
     assert not _safe_path("~/id_rsa")
-    assert "app.py" in search_snapshot("password")
+    assert "app.py" in search_snapshot("eval(")
     assert "eval" not in read_snapshot("missing.py")
+
+
+def test_snapshot_tools_never_return_or_confirm_a_secret() -> None:
+    """Tool output reaches the model provider like the prompt does.
+
+    The prompt was redacted but `read_snapshot` returned the raw patch, and
+    `search_snapshot` let a model confirm a secret by guessing it.
+    """
+    diff = DiffSet(files=parse_unified_diff(VULN_DIFF))
+    read_snapshot, search_snapshot = _snapshot_tools(diff)
+    body = read_snapshot("app.py")
+    assert "supersecretvalue" not in body
+    assert "REDACTED" in body
+    assert "eval(cmd)" in body  # code that is not a secret stays readable
+    assert search_snapshot("supersecretvalue") == "no matches"
+    assert search_snapshot("supersecret") == "no matches"
 
 
 def test_missing_model_is_an_explicit_incompatibility(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -28,6 +28,22 @@ def reviewer_from_yaml(config_yaml: str | None) -> ReviewerConfig:
     return RepoConfig.model_validate(raw).reviewer
 
 
+def reviewer_overrides_from_yaml(config_yaml: str | None) -> dict[str, Any]:
+    """Only the reviewer fields the repository file actually sets.
+
+    The section is validated in full first (so `auto_merge: true` and unknown
+    keys are still rejected), but defaults are not returned: a field the file
+    omits must inherit the organization setting, not reset it to the code
+    default.
+    """
+    return reviewer_from_yaml(config_yaml).model_dump(exclude_unset=True)
+
+
+def explicit_settings(config: ReviewerConfig) -> dict[str, Any]:
+    """What a settings API call should store: only the fields it set."""
+    return config.model_dump(exclude_unset=True)
+
+
 def resolve_reviewer_config(
     *,
     config_yaml: str | None,
@@ -37,7 +53,7 @@ def resolve_reviewer_config(
     """Merge the four layers into one config."""
     merged = ReviewerConfig().model_dump()
     merged = _deep_merge(merged, org_settings or {})
-    merged = _deep_merge(merged, reviewer_from_yaml(config_yaml).model_dump())
+    merged = _deep_merge(merged, reviewer_overrides_from_yaml(config_yaml))
     merged = _deep_merge(merged, repo_settings or {})
     return ReviewerConfig.model_validate(merged)
 

@@ -9,7 +9,7 @@
 | GitHub publisher | Installation token | Check runs and `COMMENT` reviews | Never `APPROVE` |
 | GitPilot remediation | Repair plan with `allowed_paths` | Draft PR only after human approval | `auto_merge` is rejected by the schema |
 
-Review agents do not receive the GitHub token. The publisher holds it. Prompts are redacted with the CI redaction rules before they are stored. Evidence stored on `review_finding` is redacted. Webhook signatures are unchanged: GitHub HMAC and GitLab token.
+Review agents do not receive the GitHub token. The publisher holds it. Prompts are redacted with the CI redaction rules before they are stored. The Deep Agents snapshot tools (`read_snapshot`, `search_snapshot`) read and search the same redacted text, so a tool call cannot return a committed credential to the model provider or confirm one by guessing. Evidence stored on `review_finding` is redacted. Webhook signatures are unchanged: GitHub HMAC and GitLab token.
 
 ## Isolation
 
@@ -29,7 +29,7 @@ A missing diff, a truncated diff, a model timeout, or an unavailable engine fini
 
 ## Publication
 
-The worker mints `GitHubAppAuth.installation_token` when `GITHUB_APP_ID` and a private key are set and the repository has an installation id. `SELFREPAIR_GITHUB_TOKEN` is only the fallback. A missing credential is stored as `unpublished` and a clean review is `action_required`, not a green check. Pull-request diffs come from the base repository's files API, so a fork is not cloned.
+The worker mints `GitHubAppAuth.installation_token` when `GITHUB_APP_ID` and a private key are set and the repository has an installation id. `SELFREPAIR_GITHUB_TOKEN` is only the fallback. A missing credential is stored as `unpublished` and a clean review is `action_required`, not a green check. Pull-request diffs come from the base repository's compare API pinned to the event's SHAs, so a fork is not cloned and a finding is never stored under a revision it was not computed from.
 
 ## Threats not closed here
 

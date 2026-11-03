@@ -7,6 +7,7 @@ as a successful check.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -131,7 +132,9 @@ async def review_change(
         if announce is not None:
             await announce(event=event, run=run)
         diff = await diff_provider.collect(event, repo)
-        report = _run_engines(event, diff, config, engine)
+        # Engines are synchronous and a model call can take minutes. Run them
+        # off the event loop so other worker jobs and publication keep going.
+        report = await asyncio.to_thread(_run_engines, event, diff, config, engine)
         validated = validate_findings(diff, report.findings) if diff.files else []
         incomplete = report.incomplete_reason or diff.error
         conclusion = conclude(
@@ -191,9 +194,11 @@ async def review_change(
         )
         return ("reviewed" if status == "completed" else "incomplete"), run
     except TransientReviewError:
+        await _abandon(publisher, event, run, "transient provider error; retrying")
         await store.update_run(run.id, status="queued", conclusion=None, error="transient")
         raise
     except Exception as exc:  # noqa: BLE001 — a review must not end as success
+        await _abandon(publisher, event, run, type(exc).__name__)
         run = await store.update_run(
             run.id,
             status="incomplete",
@@ -203,6 +208,17 @@ async def review_change(
             completed_at=_now(),
         )
         return "incomplete", run
+
+
+async def _abandon(publisher: Any, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+    """Close the announced check with a terminal result. Never raises."""
+    abandon = getattr(publisher, "abandon", None)
+    if abandon is None:
+        return
+    try:
+        await abandon(event=event, run=run, reason=reason)
+    except Exception:  # noqa: BLE001 - must not mask the review's own error
+        return
 
 
 def _run_engines(
