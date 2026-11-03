@@ -36,6 +36,21 @@ class TriggerReview(BaseModel):
     pr_number: int | None = None
 
 
+class RemediationBody(BaseModel):
+    """An explicit request to hand accepted findings to GitPilot `POST /repair`.
+
+    `approve` records the caller as the human approver. Without it the task
+    is a dry run. `auto_merge` exists only so a request for it is refused.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    fingerprints: list[str] = Field(min_length=1, max_length=50)
+    allowed_paths: list[str] | None = None
+    approve: bool = False
+    auto_merge: bool = False
+
+
 class ReviewSettingsBody(BaseModel):
     """A partial or full reviewer config. Unknown keys are rejected."""
 
@@ -203,6 +218,60 @@ async def retry_review(request: Request, ctx: CtxDep, review_id: uuid.UUID) -> d
     return {"outcome": outcome, "review": _public_run(refreshed or run)}
 
 
+@router.get("/reviews/{review_id}/remediations")
+async def list_remediations(
+    request: Request, ctx: CtxDep, review_id: uuid.UUID
+) -> dict[str, Any]:
+    """Remediation tasks requested for one review run."""
+    from selfrepair.reviewer.remediation import list_tasks, public_task
+
+    run = await _owned_run(request, ctx.org_id, review_id)
+    return {"items": [public_task(item) for item in list_tasks(run)]}
+
+
+@router.post("/reviews/{review_id}/remediations", status_code=status.HTTP_202_ACCEPTED)
+async def create_remediation(
+    request: Request, ctx: CtxDep, review_id: uuid.UUID, body: RemediationBody
+) -> dict[str, Any]:
+    """Send accepted findings of this run to GitPilot as one repair task.
+
+    Refused for forks, disabled remediation, unknown findings, paths outside
+    the finding files, empty path lists, and `auto_merge`. SelfRepair does not
+    approve, merge, or push the result; a GitPilot draft PR gets its own review.
+    """
+    from selfrepair.reviewer.remediation import (
+        RemediationRefused,
+        create_task,
+        execute_task,
+        gitpilot_client_from_env,
+        public_task,
+    )
+
+    store = _store(request)
+    run = await _owned_run(request, ctx.org_id, review_id)
+    config = await _config_for_run(store, run)
+    try:
+        task = await create_task(
+            store=store,
+            run=run,
+            config=config,
+            fingerprints=body.fingerprints,
+            allowed_paths=body.allowed_paths,
+            approve=body.approve,
+            requested_by=ctx.actor,
+            auto_merge=body.auto_merge,
+        )
+    except RemediationRefused as exc:
+        raise HTTPException(status_code=409, detail=exc.reason) from exc
+    queue = getattr(request.app.state, "queue", None)
+    if queue is not None:
+        await queue.enqueue_job("remediate_review", str(review_id), task["id"])
+        return {"outcome": "queued", "task": public_task(task)}
+    client = getattr(request.app.state, "gitpilot_client", None) or gitpilot_client_from_env()
+    done = await execute_task(store=store, review_id=review_id, task_id=task["id"], client=client)
+    return {"outcome": done["status"], "task": public_task(done)}
+
+
 @router.get("/repos/{repo_id}/review-settings")
 async def get_repo_settings(
     request: Request, ctx: CtxDep, repo_id: uuid.UUID
@@ -258,6 +327,26 @@ async def _owned_run(request: Request, org_id: uuid.UUID, review_id: uuid.UUID) 
     if run is None or run.org_id != org_id:
         raise HTTPException(status_code=404, detail="review not found")
     return run
+
+
+async def _config_for_run(store: ReviewStore, run: Any) -> ReviewerConfig:
+    """The effective reviewer config for a run's repository, file included."""
+    meta = run.metadata or {}
+    installation = meta.get("installation_id")
+    repo = await store.resolve_repo(
+        provider=run.provider,
+        full_name=str(meta.get("repo_full_name") or ""),
+        installation_id=installation if isinstance(installation, int) else None,
+    )
+    config_yaml = None
+    if repo is not None and not repo.ambiguous and repo.repo_id == run.repo_id:
+        config_yaml = repo.config_yaml
+    org_settings, repo_settings = await store.settings_for(
+        org_id=run.org_id, repo_id=run.repo_id
+    )
+    return resolve_reviewer_config(
+        config_yaml=config_yaml, org_settings=org_settings, repo_settings=repo_settings
+    )
 
 
 def _validate_settings(raw: dict[str, Any]) -> ReviewerConfig:

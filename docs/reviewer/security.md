@@ -16,7 +16,8 @@ Review agents do not receive the GitHub token. The publisher holds it. Prompts a
 - Tenant lookup is `(provider, full_name, installation id)`. An ambiguous match does not pick an organization.
 - API reads filter on `CtxDep.org_id`. Another organization's review id returns 404.
 - Snapshot tools reject absolute paths, `~`, and `..`.
-- Remediation rejects fork pull requests, paths containing `..`, empty `allowed_paths`, and `auto_merge: true`.
+- Remediation rejects fork pull requests, paths containing `..` or starting with `/`, empty `allowed_paths`, paths outside the selected findings' files, findings from another run, superseded runs, and `auto_merge: true`. It is tenant-scoped through the run's `org_id`. Approval (`draft_pr`) needs an identified caller; anything else is `dry_run`.
+- The remediation record stores the plan and GitPilot's parsed result. It does not store prompts, tokens, or the raw response. An offline GitPilot stub is stored as `gitpilot_unavailable`, not as a patch.
 - `selfrepair/` branches and the SelfRepair bot sender are not reviewed, so a repair push cannot enqueue another review of itself.
 - Repository text is labeled untrusted in the Deep Agents system prompt. A comment that says to ignore policy does not remove a deterministic secret finding, and the policy function does not read the model summary when deciding `failure`.
 - The deterministic rules skip comment lines so a sentence about `eval(` is not a finding.
@@ -35,4 +36,4 @@ The worker mints `GitHubAppAuth.installation_token` when `GITHUB_APP_ID` and a p
 - A live model can still produce a plausible, wrong comment on a line that is in the diff. Line checks stop fabricated locations; they do not stop a wrong explanation of a real line.
 - GitLab line discussions are a single note plus a commit status, not a per-line discussion thread.
 - The bundled benchmark does not measure Deep Agents.
-- Unit tests use fake HTTP transports. They do not prove a live GitHub, GitLab, or OllaBridge call.
+- Unit tests use fake HTTP transports. They do not prove a live GitHub, GitLab, or OllaBridge call. See `benchmark.md` for what was run against live processes.

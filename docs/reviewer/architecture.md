@@ -45,6 +45,23 @@ GitLab commit status + MR note
 
 A push and a later delivery for the same base and head share one run. Event kind is not part of the identity. A new head on the same ref marks the previous run `superseded` with conclusion `cancelled`, so an old success cannot stand in for the new commit. GitHub required checks are also per SHA.
 
+## Remediation
+
+```
+POST /v1/reviews/{id}/remediations   (caller's org, accepted findings, optional approve)
+        │  refuse: fork, disabled, superseded, empty/outside paths, auto_merge
+        ▼
+metadata.remediations[] task "queued"  ──► Arq remediate_review
+                                                │
+                                                ▼
+                                   GitPilotClient.repair → POST /repair
+                                                │
+                                                ▼
+                         task: completed | blocked | failed | gitpilot_unavailable
+```
+
+`dry_run` unless remediation is enabled and an identified human approved; then `draft_pr`. GitPilot opens any draft PR from `gitpilot/<task_id>`. That pull request is reviewed like any other. SelfRepair does not approve or merge it.
+
 ## Engines
 
 | Engine | When it runs | Model |
@@ -55,6 +72,10 @@ A push and a later delivery for the same base and head share one run. Event kind
 `deepagents` 0.7.32 (`requires-python >=3.11,<4`) is called through `create_deep_agent` with specialist subagents, `response_format=DeepAgentReport`, and filesystem permissions that allow read and deny write. No sandbox backend is attached, so the framework does not register `execute`. Snapshot tools only read the diff. If the library, `SELFREPAIR_REVIEW_MODEL`, or an OllaBridge URL (`SELFREPAIR_OLLABRIDGE_URL`, otherwise `OLLABRIDGE_BASE_URL` or `OPENAI_BASE_URL`) is missing, the engine raises `EngineUnavailable`. Deterministic findings are kept and the check conclusion is `action_required` unless a blocking finding already fails it. The worker posts the check with an installation token from `GitHubAppAuth` when the app is configured. GitLab merge requests use the compare API and a commit status plus one note.
 
 The coordinator does not choose the check conclusion.
+
+## Console
+
+`frontend/src/surfaces/Reviews.jsx` lists `/v1/reviews`, opens a run with its findings and remediation tasks, retries incomplete runs, sends a single finding to GitPilot as a dry run, and edits the organization default config. Approval of a draft PR is API-only.
 
 ## Not production-ready
 

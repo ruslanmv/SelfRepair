@@ -26,7 +26,40 @@ All routes use the caller's organization from the session or `X-SelfRepair-Org-I
 
 The manual trigger forces the deterministic engine and does not approve a pull request. The default publisher records the check payload instead of calling GitHub.
 
-`POST /v1/reviews/{review_id}/retry` sets `queued` on an incomplete, failed, or already queued run. It does not invent a success.
+`POST /v1/reviews/{review_id}/retry` sets `queued` on an incomplete, failed, or already queued run and enqueues the Arq job `retry_review` when Redis is up. Without a queue the API re-runs the review in-process. It does not invent a success.
+
+## Remediation
+
+`GET /v1/reviews/{review_id}/remediations` lists the GitPilot tasks requested for one run.
+
+`POST /v1/reviews/{review_id}/remediations`
+
+```json
+{
+  "fingerprints": ["<finding fingerprint>"],
+  "allowed_paths": ["app.py"],
+  "approve": false
+}
+```
+
+- `fingerprints` must name accepted findings of this run (1 to 50).
+- `allowed_paths` defaults to the findings' files. A narrower list is allowed. A path outside those files, or an empty list, is refused.
+- `approve: true` records the caller (`X-SelfRepair-Actor` or the session user) as the human approver and sends `mode: draft_pr`. Without an identified caller, or without `approve`, the task is `dry_run`.
+- `auto_merge: true` is refused. So are fork pull requests, superseded runs, and repositories where `reviewer.remediation.enabled` is false. Refusals are `409` with the reason in `detail`. Another organization's run is `404`.
+
+With Redis up the API stores the task as `queued` and enqueues Arq `remediate_review(review_id, task_id)`. The worker calls `GitPilotClient.repair` (`POST /repair`). Without a queue the API calls GitPilot directly.
+
+The task is stored on the run under `metadata.remediations`:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | `review-<run>-<random>`. GitPilot works on branch `gitpilot/<id>`. |
+| `status` | `queued`, `running`, `completed`, `blocked`, `needs_approval`, `failed`, `refused`, or `gitpilot_unavailable` |
+| `mode` | `dry_run` or `draft_pr` |
+| `plan` | The exact `POST /repair` body |
+| `result` | GitPilot status, risk level, changed files, patch preview (64 KB cap), review text, `pr_url`, warnings, `stubbed` |
+
+`gitpilot_unavailable` means `GitPilotClient` could not reach GitPilot and returned its offline stub. The stub's preview is not a patch and the task says so. No prompt, token, or raw response is stored. SelfRepair never approves, merges, or pushes; a GitPilot draft PR is a new pull request and gets its own `SelfRepair / Review` run (its branch is `gitpilot/*`, not `selfrepair/*`).
 
 ## Settings
 
@@ -56,7 +89,7 @@ GitLab status uses the same context string. `success` stays `success`. `failure`
 
 ## GitPilot `POST /repair`
 
-`selfrepair.reviewer.remediation.build_repair_plan` returns:
+`selfrepair.reviewer.remediation.build_repair_plan_for_findings` (and the single-finding `build_repair_plan`) returns:
 
 ```json
 {
@@ -83,6 +116,6 @@ GitLab status uses the same context string. `success` stays `success`. `failure`
 }
 ```
 
-`mode` becomes `draft_pr` only when remediation is enabled and the caller passes `human_approved=True`. `auto_merge` is always false and is not part of GitPilot's `RepairRequest` schema; the contract test strips it before `RepairRequest.from_json`. `submit_repair_plan` calls `GitPilotClient.repair` and refuses an empty allow-list or `auto_merge: true`.
+`mode` becomes `draft_pr` only when remediation is enabled and the caller passes `human_approved=True`. `auto_merge` is always false and is not part of GitPilot's `RepairRequest` schema. `tests/unit/reviewer/test_remediation_integration.py` loads `gitpilot/repair/schema.py` from a GitPilot checkout (`GITPILOT_SRC`, or `../gitpilot`), checks that every `RepairRequest` field is present in the plan, and parses it. GitPilot also downgrades `draft_pr` to `dry_run` unless its own `GITPILOT_DRAFT_PR_ENABLED` is set. `submit_repair_plan` calls `GitPilotClient.repair` and refuses an empty allow-list or `auto_merge: true`.
 
 `/v1/agents/repair` is not called.

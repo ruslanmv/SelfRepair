@@ -93,6 +93,10 @@ services:
       SELFREPAIR_REVIEW_MODEL: ${SELFREPAIR_REVIEW_MODEL:-}
       SELFREPAIR_OLLABRIDGE_URL: ${SELFREPAIR_OLLABRIDGE_URL:-}
       SELFREPAIR_OLLABRIDGE_API_KEY: ${SELFREPAIR_OLLABRIDGE_API_KEY:-}
+      # Remediation runs on the worker when Redis is up; the API only calls
+      # GitPilot directly when it has no queue.
+      SELFREPAIR_GITPILOT_URL: ${SELFREPAIR_GITPILOT_URL:-http://gitpilot:8000}
+      SELFREPAIR_GITPILOT_TOKEN: ${SELFREPAIR_GITPILOT_TOKEN:-}
     ports:
       - "8000:8000"
     healthcheck:
