@@ -116,9 +116,15 @@ class Repo(Base):
     default_branch: Mapped[str] = mapped_column(String(255), default="main", nullable=False)
     last_seen_sha: Mapped[str | None] = mapped_column(String(64))
     config_yaml: Mapped[str | None] = mapped_column(Text)
+    # GitHub App installation that delivered the last webhook for this repo.
+    # Null until a webhook is seen. Required before private compare/check calls.
+    github_installation_id: Mapped[int | None] = mapped_column(BigInteger)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (UniqueConstraint("org_id", "provider", "full_name"),)
+    __table_args__ = (
+        UniqueConstraint("org_id", "provider", "full_name"),
+        Index("ix_repo_github_installation", "github_installation_id"),
+    )
 
 
 # -------------------- Jobs --------------------

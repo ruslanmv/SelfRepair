@@ -118,6 +118,23 @@ class TestGitHubWebhook:
         assert args[2] == "abc"
         assert args[3]["repository"]["full_name"] == "octo/hello"
 
+    def test_prefixed_webhook_secret_is_accepted(self, client, app, monkeypatch) -> None:
+        monkeypatch.delenv("GITHUB_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("SELFREPAIR_GITHUB_WEBHOOK_SECRET", "test-secret")
+        body = b'{"repository": {"full_name": "octo/hello"}}'
+        resp = client.post(
+            "/webhooks/github",
+            content=body,
+            headers={
+                "X-GitHub-Event": "push",
+                "X-GitHub-Delivery": "pref",
+                "X-Hub-Signature-256": _sign(body),
+                "Content-Type": "application/json",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+
     def test_unhandled_event_is_acknowledged(self, client, app) -> None:
         body = b"{}"
         resp = client.post(

@@ -168,6 +168,12 @@ Hard rules baked into the contract:
 
 Reference implementation: `selfrepair/connectors/gitpilot.py`.
 
+The repair server that GitPilot currently ships is `POST /repair`
+(`gitpilot/repair_router.py`), which `selfrepair/coders/gitpilot_client.py`
+already calls. The SSE path above is the design target and is not
+implemented on the GitPilot side. Reviewer remediation uses `/repair`.
+See `docs/reviewer/architecture.md`.
+
 ### 5.2 SelfRepair / GitPilot → OllaBridge
 
 OllaBridge stays an OpenAI-compatible `/v1/chat/completions` endpoint with two

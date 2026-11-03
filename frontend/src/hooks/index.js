@@ -11,3 +11,4 @@ export * from "./useSchedules.js";
 export * from "./useIntegrations.js";
 export * from "./useIssues.js";
 export * from "./useSession.js";
+export * from "./useReviews.js";

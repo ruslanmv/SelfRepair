@@ -52,3 +52,29 @@ notifications:
   slack: "#delivery-alerts"
   email:
     - platform-team@example.com
+
+# Code review is opt-in. `enabled: false` keeps this example from starting
+# reviews. Switch the engine to `deepagents` only after OllaBridge tool-calling
+# has been evaluated. Remediation cannot auto-merge.
+reviewer:
+  enabled: false
+  engine: deterministic
+  triggers:
+    push: true
+    pull_request: true
+    merge_request: true
+  branches:
+    include:
+      - main
+      - master
+      - develop
+  review:
+    inline_comments: true
+    publish_summary: true
+    block_on:
+      - critical
+      - high
+  remediation:
+    enabled: false
+    require_human_approval: true
+    auto_merge: false

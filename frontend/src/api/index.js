@@ -14,3 +14,4 @@ export * as schedules from "./schedules.js";
 export * as routines from "./routines.js";
 export * as integrations from "./integrations.js";
 export * as issues from "./issues.js";
+export * as reviews from "./reviews.js";

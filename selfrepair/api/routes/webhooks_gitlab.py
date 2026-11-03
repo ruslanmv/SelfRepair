@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-_HANDLED_EVENTS = frozenset({"Issue Hook", "Note Hook"})
+_HANDLED_EVENTS = frozenset({"Issue Hook", "Note Hook", "Merge Request Hook"})
 
 
 @router.post("/gitlab")
@@ -35,8 +35,9 @@ async def gitlab_webhook(
     request: Request,
     x_gitlab_event: str = Header(default=""),
     x_gitlab_token: str | None = Header(default=None),
+    x_gitlab_event_uuid: str | None = Header(default=None),
 ) -> dict[str, str]:
-    secret = os.getenv("GITLAB_WEBHOOK_SECRET")
+    secret = os.getenv("GITLAB_WEBHOOK_SECRET") or os.getenv("SELFREPAIR_GITLAB_WEBHOOK_SECRET")
     if not secret:
         logger.error("GITLAB_WEBHOOK_SECRET is not configured")
         raise HTTPException(
@@ -60,10 +61,20 @@ async def gitlab_webhook(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="queue unavailable; bring up Redis (`make start-deps`)",
         )
-    await queue.enqueue_job(
-        "ingest_gitlab_webhook",
-        x_gitlab_event,
-        payload,
-    )
+    # Only merge requests use the delivery id (review dedupe). Issue hooks keep
+    # the two-argument call so queued jobs from older API builds still match.
+    if x_gitlab_event == "Merge Request Hook" and x_gitlab_event_uuid:
+        await queue.enqueue_job(
+            "ingest_gitlab_webhook",
+            x_gitlab_event,
+            payload,
+            f"gitlab:{x_gitlab_event_uuid[:100]}",
+        )
+    else:
+        await queue.enqueue_job(
+            "ingest_gitlab_webhook",
+            x_gitlab_event,
+            payload,
+        )
     logger.info("queued gitlab webhook event=%s", x_gitlab_event)
     return {"status": "queued", "event": x_gitlab_event}
