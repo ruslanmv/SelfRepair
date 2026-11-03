@@ -46,6 +46,8 @@ export SELFREPAIR_OLLABRIDGE_API_KEY=...
 
 If the model cannot do tool calls or structured output, the run ends `action_required` and the deterministic findings remain. A small local model is not assumed to be sufficient.
 
+OllaBridge model names are routes. `qwen2.5:1.5b` on OllaBridge Cloud is served by `gpt-oss-120b`. `free-fast` and `free-best` gave the best speed and accuracy in `benchmark.md`. Deep Agents needs the gateway to forward `tools`: see the benchmark notes for the gateway version that does.
+
 ## Branch protection
 
 The check name is `SelfRepair / Review`.
