@@ -620,7 +620,8 @@ export function Routines() {
 
   const save = async (draft) => {
     if (editing) {
-      const { repo_id, ...body } = draft;
+      const body = { ...draft };
+      delete body.repo_id;
       await patchRoutine.mutateAsync({ id: editing.id, body });
     } else {
       await createRoutine.mutateAsync(draft);
