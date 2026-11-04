@@ -95,6 +95,10 @@ jobs:
         working-directory: frontend
         run: npm install --no-audit --no-fund
 
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
       - name: Build
         working-directory: frontend
         run: npm run build
