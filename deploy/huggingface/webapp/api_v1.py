@@ -562,7 +562,7 @@ async def connections_pair_ollabridge(request: Request):
         payload = {}
     # Fail closed: never persist or echo a partial/invalid pairing response.
     token = payload.get("device_token") if isinstance(payload, dict) else None
-    if remote.status_code != 200 or payload.get("status") != "ok" or not isinstance(token, str) or not token:
+    if (remote.status_code != 200 or not isinstance(payload, dict) or payload.get("status") != "ok" or not isinstance(token, str) or not token):
         raise HTTPException(
             status_code=422, detail="Pairing failed. Check the code or generate a new one in OllaBridge."
         )
