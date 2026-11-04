@@ -35,7 +35,7 @@ def _result(status: str, detail: str, extra: dict[str, Any] | None = None) -> di
 
 
 def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, Any]:
-    with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
+    with httpx.Client(timeout=_TIMEOUT, follow_redirects=False) as c:
         r = c.get(url, headers=headers or {})
         body: Any
         try:
@@ -69,7 +69,7 @@ def test_ollabridge(base_url: str, api_key: str) -> dict[str, Any]:
     try:
         code, _ = _get(f"{root}/health")
         if 200 <= code < 300:
-            return _result("ok", "Service reachable (health ok); /models not authorized yet.", {})
+            return _result("unknown", "Gateway reachable, but model access is not verified. Pair a device or provide a valid API key.", {})
     except httpx.HTTPError as e:
         last = str(e)
     return _result("error", f"Could not reach OllaBridge /models. ({last})", {})
