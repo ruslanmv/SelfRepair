@@ -89,7 +89,9 @@
 .connector-dialog-foot .btn { min-width: 88px; }
 .connector-result { text-align: center; border-radius: 10px; padding: 20px; background: var(--bg-elev-2); border: 1px solid var(--hairline-strong); }
 .connector-result-icon { width: 52px; height: 52px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border); }
+.connector-result.is-warn .connector-result-icon { background: var(--info-bg); color: var(--info); border-color: var(--info-border); }
 .connector-result.is-error .connector-result-icon { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
+.connector-card-meta { font-size: 11px; line-height: 1.45; color: var(--fg-faint); margin: 8px 0 0; }
 .connector-result h3 { font-size: 17px; margin: 13px 0 8px; }
 .connector-result p { color: var(--fg-muted); font-size: 12px; line-height: 1.6; margin: 0; }
 .connector-result-summary { display: grid; grid-template-columns: minmax(90px,.5fr) minmax(0,2fr); gap: 12px; font-size: 12px; padding: 18px 4px 0; align-items: center; }

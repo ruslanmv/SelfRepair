@@ -191,9 +191,11 @@ class Connection(Base):
     provider = Column(String(40), nullable=False)
     base_url = Column(String(500), nullable=False, default="")
     api_key_enc = Column(Text, nullable=True)
-    status = Column(String(20), default="unknown")  # unknown | ok | error
+    status = Column(String(32), default="unknown")  # unknown | ok | reachable | error | expired | disconnected
     detail = Column(Text, default="")
+    auth_method = Column(String(32), nullable=True)
     last_checked_at = Column(DateTime, nullable=True)
+    last_attempted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -265,7 +267,18 @@ def _ensure_columns() -> None:
         from sqlalchemy import inspect as _inspect
 
         insp = _inspect(insp_bind)
-        if "users" not in insp.get_table_names():
+        tables = set(insp.get_table_names())
+        if "connections" in tables:
+            conn_cols = {c["name"] for c in insp.get_columns("connections")}
+            for col, ddl in (
+                ("auth_method", "ALTER TABLE connections ADD COLUMN auth_method VARCHAR(32)"),
+                ("last_attempted_at", "ALTER TABLE connections ADD COLUMN last_attempted_at TIMESTAMP"),
+            ):
+                if col not in conn_cols:
+                    with engine.begin() as conn:
+                        conn.execute(text(ddl))
+                    logger.info("SelfRepair DB: added connections.%s column.", col)
+        if "users" not in tables:
             return
         cols = {c["name"] for c in insp.get_columns("users")}
         bool_default = "0" if engine.dialect.name == "sqlite" else "false"

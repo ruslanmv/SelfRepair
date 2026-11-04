@@ -52,16 +52,29 @@ function errorMessage(error) {
 }
 
 function statusLabel(conn) {
+  if (conn?.display_status) return conn.display_status;
   if (!conn) return "Not configured";
   if (conn.status === "ok") return conn.has_secret ? "Connected" : "Reachable";
+  if (conn.status === "reachable") return "Reachable";
+  if (conn.status === "expired") return "Expired";
+  if (conn.status === "disconnected") return "Disconnected";
   if (conn.status === "error") return "Needs attention";
   return conn.has_secret ? "Not verified" : "Not configured";
 }
 
 function statusTone(conn) {
-  if (conn?.status === "ok") return "ok";
-  if (conn?.status === "error") return "danger";
+  const label = statusLabel(conn);
+  if (label === "Connected") return "ok";
+  if (label === "Reachable" || label === "Pairing") return "info";
+  if (label === "Needs attention" || label === "Expired") return "danger";
   return "neutral";
+}
+
+function formatWhen(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function cleanCode(value) {
@@ -180,9 +193,13 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
 
   const paired = result?.pairing === "paired";
   const verified = result?.status === "ok";
+  const reachable = result?.status === "reachable";
   const resultTitle = verified
-    ? paired ? "Device paired and verified" : "Connection verified"
-    : paired ? "Paired, but verification needs attention" : "Connection check needs attention";
+    ? paired ? "Device paired and model access verified" : "Access verified"
+    : reachable
+      ? "Service is reachable"
+      : paired ? "Paired, but access needs attention" : "Connection check needs attention";
+  const resultTone = verified ? "is-ok" : reachable ? "is-warn" : "is-error";
 
   return (
     <div className="connector-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -218,7 +235,9 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
                       <small>{p.description}</small>
                     </span>
                     <span className="connector-choice-end">
-                      {c?.status === "ok" && <span className="connector-existing">Connected</span>}
+                      {["Connected", "Reachable", "Needs attention", "Expired"].includes(statusLabel(c)) && (
+                        <span className="connector-existing">{statusLabel(c)}</span>
+                      )}
                       <Icon name="caret" s={17} />
                     </span>
                   </button>
@@ -250,8 +269,8 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
                   <div className="connector-pair-instruction">
                     <span className="connector-instruction-index">1</span>
                     <div>
-                      <strong>Generate a code in OllaBridge</strong>
-                      <p>Open your OllaBridge Cloud dashboard, choose <b>Pair a device</b>, and copy the short-lived code shown there.</p>
+                      <strong>Generate a code while signed in</strong>
+                      <p>Open OllaBridge Cloud, choose <b>Device pairing</b>, and copy the short-lived code. SelfRepair does not create codes. A code that is not linked to your signed-in account is rejected.</p>
                       <a className="connector-open-link" href={CLOUD_URL} target="_blank" rel="noreferrer">
                         Open OllaBridge dashboard <Icon name="external" s={14} />
                       </a>
@@ -300,21 +319,27 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
         {step === 2 && provider && (
           <>
             <div className="connector-dialog-body">
-              <div className={`connector-result ${verified ? "is-ok" : "is-error"}`} role="status">
-                <span className="connector-result-icon"><Icon name={verified ? "check" : "shield"} s={27} /></span>
+              <div className={`connector-result ${resultTone}`} role="status">
+                <span className="connector-result-icon"><Icon name={verified || reachable ? "check" : "shield"} s={27} /></span>
                 <h3>{resultTitle}</h3>
                 <p>{result?.detail || "The service could not be verified. Check the connection settings and try again."}</p>
+                {result?.workflow_verified === false && (
+                  <p className="connector-result-note">This check did not run a repair or a sandbox job.</p>
+                )}
               </div>
               <div className="connector-result-summary">
                 <span>Provider</span><strong>{provider.label}</strong>
                 <span>Server</span><code>{paired ? CLOUD_API_URL : baseUrl}</code>
                 <span>Credential</span><strong>{paired ? "Device token securely saved" : result?.credential_updated ? "Updated" : existing?.has_secret ? "Existing token retained" : "Not provided"}</strong>
               </div>
-              {!verified && <p className="muted connector-result-note">The settings are saved, but the connection check did not pass. You can edit the configuration or retry the check.</p>}
+              {!verified && !reachable && <p className="muted connector-result-note">The settings were saved when a credential was accepted. You can edit them or retry the check.</p>}
             </div>
             <footer className="connector-dialog-foot">
               <button className="btn" onClick={() => { setStep(1); setResult(null); }}>Edit settings</button>
-              <button className="btn btn-primary" onClick={onClose}>{verified ? "Finish" : "Close"}</button>
+              {!verified && (
+                <button className="btn" type="button" onClick={() => { setStep(1); setResult(null); setRequestError(""); }}>Retry</button>
+              )}
+              <button className="btn btn-primary" onClick={onClose}>{verified || reachable ? "Finish" : "Close"}</button>
             </footer>
           </>
         )}
@@ -354,7 +379,8 @@ export function ConnectorHub() {
     onError: (error) => setNotice(errorMessage(error)),
   });
   const rows = Array.isArray(connections.data) ? connections.data : [];
-  const connectedCount = rows.filter((c) => c.status === "ok").length;
+  const connectedCount = rows.filter((c) => statusLabel(c) === "Connected").length;
+  const reachableCount = rows.filter((c) => statusLabel(c) === "Reachable").length;
 
   return (
     <section className="connector-hub" aria-labelledby="connector-hub-title">
@@ -369,8 +395,8 @@ export function ConnectorHub() {
         </button>
       </div>
       <div className="connector-summary">
-        <span><span className="connector-summary-dot" /> {connectedCount} of {PROVIDERS.length} services reachable</span>
-        <span>Connection checks reflect the last successful test, not continuous monitoring.</span>
+        <span><span className="connector-summary-dot" /> {connectedCount} connected · {reachableCount} reachable</span>
+        <span>Checks show the last attempt. A health response is not a completed repair.</span>
       </div>
       {connections.isLoading && <p className="muted" role="status">Loading connectors…</p>}
       {connections.isError && (
@@ -396,6 +422,12 @@ export function ConnectorHub() {
                   <span>Endpoint</span><code>{conn?.base_url || p.defaultUrl}</code>
                 </div>
                 {conn?.detail && <p className="connector-card-detail">{conn.detail}</p>}
+                {(conn?.last_checked_at || conn?.last_attempted_at) && (
+                  <p className="connector-card-meta">
+                    {conn.last_checked_at ? `Last success ${formatWhen(conn.last_checked_at)}` : "No successful check yet"}
+                    {conn.last_attempted_at ? ` · Last attempt ${formatWhen(conn.last_attempted_at)}` : ""}
+                  </p>
+                )}
                 <div className="connector-card-actions">
                   <button className="btn btn-primary" onClick={() => { setNotice(""); setWizardProvider(p.id); }}>
                     <Icon name="settings" s={14} /> {conn?.has_secret || conn?.last_checked_at ? "Manage" : "Configure"}
@@ -422,7 +454,7 @@ export function ConnectorHub() {
             <h3 id="disconnect-title">Disconnect {BY_ID[confirmProvider]?.label}?</h3>
             <p id="disconnect-desc">This removes the saved token and resets the connection. You can configure it again later.</p>
             <div className="connector-confirm-actions">
-              <button className="btn" onClick={() => setConfirmProvider(null)} disabled={disconnect.isPending}>Cancel</button>
+              <button className="btn" autoFocus onClick={() => setConfirmProvider(null)} disabled={disconnect.isPending}>Cancel</button>
               <button className="btn connector-danger-btn" onClick={() => disconnect.mutate(confirmProvider)} disabled={disconnect.isPending}>{disconnect.isPending ? "Disconnecting…" : "Disconnect"}</button>
             </div>
           </section>
