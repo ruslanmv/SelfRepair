@@ -106,3 +106,31 @@
 @media (max-width: 720px) { .connector-card-grid { grid-template-columns: 1fr; } .connector-hub-head { align-items: flex-start; } .connector-hub-head > .btn { margin-top: 8px; } .connector-overlay { padding: 8px; align-items: center; } .connector-dialog { max-height: 96dvh; } .connector-dialog-head { padding: 18px; } .connector-steps { padding: 12px 18px; gap: 4px; } .connector-step { font-size: 10px; gap: 4px; } .connector-step-number { width: 21px; height: 21px; } .connector-dialog-body { padding: 18px; } .connector-dialog-foot { padding: 12px 18px; } }
 @media (max-width: 440px) { .connector-hub-head { flex-wrap: wrap; } .connector-step span:last-child { display: none; } .connector-server-block { align-items: flex-start; flex-direction: column; } .connector-choice .connector-logo { width: 38px; height: 38px; } .connector-choices { gap: 6px; } }
 @media (prefers-reduced-motion: reduce) { .connector-card { transition: none; } .connector-card:hover { transform: none; } }
+
+/* Settings page and optional SCM integrations (full FastAPI deployments). */
+.settings-page { padding: 24px clamp(16px,3vw,36px) 40px; margin: 0 auto; max-width: 1520px; }
+.settings-title { margin-bottom: 24px; }
+.settings-title h1 { margin: 0 0 5px; font-size: 25px; font-weight: 650; letter-spacing: -.025em; }
+.settings-title p { font-size: 13px; margin: 0; }
+.settings-account { margin-bottom: 29px; }
+.settings-account h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+.settings-account-card { border: 1px solid var(--hairline-strong); border-radius: 10px; background: var(--bg-elev-1); padding: 17px 18px; display: grid; grid-template-columns: 1.6fr .65fr 1fr .5fr; gap: 18px; }
+.settings-account-card > div { display: grid; gap: 5px; min-width: 0; }
+.settings-account-label { color: var(--fg-muted); font-size: 11px; }
+.settings-account-card strong { font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.settings-source-control { border: 1px solid var(--hairline-strong); border-radius: 11px; margin-top: 25px; background: var(--bg-elev-1); }
+.settings-source-control summary { padding: 17px 18px; cursor: pointer; font-size: 13px; font-weight: 650; }
+.settings-source-control summary span { margin-left: 10px; font-weight: 400; font-size: 11px; }
+.settings-scm-body { padding: 4px 18px 20px; }
+.settings-scm-body > p { font-size: 12px; }
+.settings-scm-list { display: grid; gap: 8px; margin-bottom: 15px; }
+.settings-scm-row { display: flex; align-items: center; gap: 12px; border: 1px solid var(--hairline); border-radius: 8px; padding: 11px 12px; }
+.settings-scm-row > div { flex: 1; min-width: 0; font-size: 12px; }
+.settings-scm-row .mono { margin-left: 8px; font-size: 11px; }
+.settings-scm-row p { margin: 5px 0 0; font-size: 11px; }
+.settings-scm-form { display: grid; grid-template-columns: .75fr 1.1fr 1.4fr auto; align-items: end; gap: 10px; }
+.settings-scm-form label { display: grid; gap: 6px; font-size: 11px; color: var(--fg-muted); }
+.settings-scm-form :is(input,select) { color: var(--fg); background: var(--bg-elev-2); border: 1px solid var(--hairline-strong); border-radius: 7px; height: 37px; padding: 7px 9px; font: inherit; font-size: 12px; width: 100%; min-width: 0; }
+.settings-scm-form :is(input,select):focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+@media (max-width: 900px) { .settings-account-card { grid-template-columns: repeat(2,minmax(0,1fr)); } .settings-scm-form { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .settings-account-card { grid-template-columns: 1fr; gap: 13px; } .settings-scm-form { grid-template-columns: 1fr; } .settings-scm-row { flex-wrap: wrap; } .settings-source-control summary span { display: block; margin: 6px 0 0; } }
