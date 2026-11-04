@@ -93,7 +93,7 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
   const [step, setStep] = React.useState(initialProvider ? 1 : 0);
   const [method, setMethod] = React.useState("pair");
   const [pairCode, setPairCode] = React.useState("");
-  const [baseUrl, setBaseUrl] = React.useState("");
+  const [baseUrl, setBaseUrl] = React.useState(() => connections.find((c) => c.provider === initialProvider)?.base_url || BY_ID[initialProvider]?.defaultUrl || "");
   const [apiKey, setApiKey] = React.useState("");
   const [revealKey, setRevealKey] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -130,16 +130,6 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
     };
   }, [onClose]);
 
-  React.useEffect(() => {
-    if (!provider) return;
-    setBaseUrl(existing?.base_url || provider.defaultUrl);
-    setPairCode("");
-    setApiKey("");
-    setMethod(provider.id === "ollabridge" ? "pair" : "key");
-    setRequestError("");
-    setResult(null);
-  }, [providerId]); // The current connection is captured when the wizard opens.
-
   const save = useMutation({
     mutationFn: ({ id, body }) => saveConnection(id, body),
   });
@@ -147,6 +137,13 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
   const busy = save.isPending || pair.isPending;
 
   function choose(id) {
+    const previous = connections.find((c) => c.provider === id);
+    setBaseUrl(previous?.base_url || BY_ID[id].defaultUrl);
+    setPairCode("");
+    setApiKey("");
+    setMethod(id === "ollabridge" ? "pair" : "key");
+    setRequestError("");
+    setResult(null);
     setProviderId(id);
     setStep(1);
   }
@@ -171,7 +168,7 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
       }
       setApiKey("");
       setPairCode("");
-      setResult(response);
+      setResult({ ...response, credential_updated: Boolean(apiKey.trim()) });
       setStep(2);
       await qc.invalidateQueries({ queryKey: ["connections"] });
       await qc.invalidateQueries({ queryKey: ["integrations"] });
@@ -311,7 +308,7 @@ function ConnectorWizard({ initialProvider, connections, onClose, onChanged }) {
               <div className="connector-result-summary">
                 <span>Provider</span><strong>{provider.label}</strong>
                 <span>Server</span><code>{paired ? CLOUD_API_URL : baseUrl}</code>
-                <span>Credential</span><strong>{paired ? "Device token securely saved" : apiKey ? "Updated" : existing?.has_secret ? "Existing token retained" : "Not provided"}</strong>
+                <span>Credential</span><strong>{paired ? "Device token securely saved" : result?.credential_updated ? "Updated" : existing?.has_secret ? "Existing token retained" : "Not provided"}</strong>
               </div>
               {!verified && <p className="muted connector-result-note">The settings are saved, but the connection check did not pass. You can edit the configuration or retry the check.</p>}
             </div>
@@ -334,6 +331,7 @@ export function ConnectorHub() {
     retry: 1,
   });
   const [wizardProvider, setWizardProvider] = React.useState(undefined);
+  const closeWizard = React.useCallback(() => setWizardProvider(undefined), []);
   const [confirmProvider, setConfirmProvider] = React.useState(null);
   const [notice, setNotice] = React.useState("");
   const test = useMutation({
@@ -416,7 +414,7 @@ export function ConnectorHub() {
       <p className="connector-footnote"><Icon name="shield" s={14} /> Credentials are stored encrypted on the server. You can replace or remove them at any time.</p>
 
       {wizardProvider !== undefined && (
-        <ConnectorWizard key={wizardProvider || "choose"} initialProvider={wizardProvider} connections={rows} onChanged={() => setNotice("")} onClose={() => setWizardProvider(undefined)} />
+        <ConnectorWizard key={wizardProvider || "choose"} initialProvider={wizardProvider} connections={rows} onChanged={() => setNotice("")} onClose={closeWizard} />
       )}
       {confirmProvider && (
         <div className="connector-overlay">
