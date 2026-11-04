@@ -46,25 +46,28 @@ export function AuditLog() {
 
       <div
         className="card"
-        style={{ padding: 12, marginBottom: 12, display: "flex", gap: 8 }}
+        style={{ padding: 12, marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 8 }}
       >
         <input
+          className="input"
           placeholder="actor"
           value={actor}
           onChange={(e) => setActor(e.target.value)}
-          style={{ flex: 1, padding: "6px 8px" }}
+          style={{ flex: "1 1 140px", minWidth: 0, padding: "6px 8px" }}
         />
         <input
+          className="input"
           placeholder="action"
           value={action}
           onChange={(e) => setAction(e.target.value)}
-          style={{ flex: 1, padding: "6px 8px" }}
+          style={{ flex: "1 1 140px", minWidth: 0, padding: "6px 8px" }}
         />
         <input
+          className="input"
           placeholder="target type (job, repair, repo, finding)"
           value={targetType}
           onChange={(e) => setTargetType(e.target.value)}
-          style={{ flex: 1.4, padding: "6px 8px" }}
+          style={{ flex: "1.4 1 200px", minWidth: 0, padding: "6px 8px" }}
         />
       </div>
 

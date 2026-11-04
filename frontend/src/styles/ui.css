@@ -455,6 +455,39 @@
 .nav-backdrop { display: none; }
 .sidebar-close { display: none; }
 
+/* -------------------------------------------------------------------------
+   Responsive layout primitives.
+   Pages use these instead of inline `gridTemplateColumns`, which a media
+   query cannot override. `minmax(0, 1fr)` lets a column shrink below its
+   content's min width, so long labels wrap instead of widening the page.
+   ------------------------------------------------------------------------- */
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.grid-4 > *, .grid-3 > *, .grid-2 > *, .grid-split > * { min-width: 0; }
+
+/* KPI sparklines give way to the number in narrow cards. */
+.kpi-spark { min-width: 0; flex-shrink: 1; display: flex; justify-content: flex-end; }
+.kpi-spark svg { max-width: 100%; height: auto; }
+
+@media (max-width: 1024px) {
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .grid-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .grid-3, .grid-2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  /* Content cards stack; KPI tiles stay two-up, the usual phone dashboard. */
+  .grid-4:not(.grid-kpi) { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 340px) {
+  .grid-kpi { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Safe-area aware topbar on all sizes (notch / status bar). */
 .topbar { padding-top: max(10px, env(safe-area-inset-top)); }
 
@@ -541,9 +574,38 @@
     text-overflow: ellipsis;
   }
 
-  /* Content gets comfortable touch padding + bottom safe area. */
+  /* Topbar actions become icon-only so the bell and menu always fit. The
+     buttons keep their name for screen readers via aria-label. */
+  .topbar .btn-label, .topbar .topbar-pill { display: none; }
+  .topbar > .btn, .topbar .chat-toggle {
+    flex-shrink: 0; min-width: 36px; min-height: 36px;
+    justify-content: center; padding-left: 9px; padding-right: 9px;
+  }
+  .topbar-crumbs { flex: 1 1 0; }
+
+  /* Page headers: title above the actions instead of beside them. */
+  .page-head, .page-fade .row:has(> div > h1), .page-fade .row:has(> h1) {
+    flex-wrap: wrap; row-gap: 12px; align-items: flex-start !important;
+  }
+  .page-head > .row, .page-fade .row:has(> div > h1) > .row { flex-wrap: wrap; }
+  :root { --t-32: 26px; --t-24: 21px; }
+
+  /* Wide tables scroll inside their card instead of widening the page. */
+  .tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl th, .tbl td { white-space: nowrap; }
+
+  /* Form controls never force their row wider than the screen. */
+  .content input, .content select, .content textarea { max-width: 100%; min-width: 0; }
+
+  /* Long values (ids, SHAs, URLs) break instead of overflowing. */
+  .content .mono, .content code { overflow-wrap: anywhere; }
+
+  /* Content gets comfortable touch padding + bottom safe area, plus room
+     for the floating settings button so it never covers the last row. */
   .content { -webkit-overflow-scrolling: touch; }
-  .content > * { padding-bottom: env(safe-area-inset-bottom); }
+  .content > * {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+  }
 
   /* Bigger tap targets in the nav. */
   .nav-item { padding-top: 11px; padding-bottom: 11px; }

@@ -6,7 +6,7 @@
         stop stop-backend stop-frontend stop-deps stop-all \
         status logs logs-api logs-worker logs-frontend \
         run-api run-worker \
-        docker-build docker-up docker-down docker-logs \
+        docker-build docker-up docker-down docker-logs hf-space \
         frontend-install frontend-dev frontend-build frontend-lint frontend-docker \
         ci clean
 
@@ -237,6 +237,9 @@ run-worker: ## Run worker in the foreground
 
 docker-build: ## Build the production backend image
 	docker build -f deploy/docker/Dockerfile -t selfrepair:dev .
+
+hf-space: ## Rebuild the console into deploy/huggingface (the HF Space) before pushing it
+	./scripts/build_hf_space.sh
 
 docker-up: ## Bring up the full dev stack (postgres+redis+api+worker)
 	$(COMPOSE) up -d --build

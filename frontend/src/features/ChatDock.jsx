@@ -207,9 +207,10 @@ export const ChatToggle = ({ active, onClick }) => (
     className={`chat-toggle ${active ? "is-on" : ""}`}
     onClick={onClick}
     title={active ? "Hide AI chat" : "Show AI chat"}
+    aria-label={active ? "Hide AI chat" : "Show AI chat"}
   >
     <span className="chat-toggle-ico"><Icon name="spark" s={13} /></span>
-    <span style={{ fontSize: "var(--t-12)", fontWeight: 500 }}>
+    <span className="btn-label" style={{ fontSize: "var(--t-12)", fontWeight: 500 }}>
       {active ? "Hide AI" : "Ask AI"}
     </span>
     {!active && <span className="chat-toggle-dot" />}

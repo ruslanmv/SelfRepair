@@ -98,7 +98,7 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
       )}
       <div style={{ position: "relative", zIndex: 1 }}>
         <div
-          className="row"
+          className="row page-head"
           style={{ justifyContent: "space-between", alignItems: "flex-end", marginBottom: 18 }}
         >
           <div>
@@ -136,9 +136,9 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
 
         {/* KPIs */}
         <div
+          className="grid-4 grid-kpi"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 12,
             marginBottom: 18,
           }}
@@ -167,6 +167,7 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
                   )}
                 </div>
                 <div
+                  className="kpi-spark"
                   style={{
                     color:
                       kpi.tone === "ok" ? "var(--ok)" :
@@ -183,9 +184,9 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
 
         {/* Two-column block */}
         <div
+          className="grid-split"
           style={{
             display: "grid",
-            gridTemplateColumns: "1.4fr 1fr",
             gap: 12,
             marginBottom: 18,
           }}
@@ -255,7 +256,7 @@ export const Overview = ({ onNav, showHeroGradient = true }) => {
         </div>
 
         {/* Bottom row: live activity + awaiting approval */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="grid-2" style={{ display: "grid", gap: 12 }}>
           <div className="card" style={{ padding: 14 }}>
             <div className="h-section">
               <h2>Live activity</h2>

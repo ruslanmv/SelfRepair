@@ -227,7 +227,7 @@ export const JobDetail = ({ jobId, onNav, onOpenAudit }) => {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
+      <div className="grid-split" style={{ display: "grid", gap: 12 }}>
         <div className="card" style={{ padding: 0 }}>
           <div
             className="row"

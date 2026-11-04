@@ -32,6 +32,41 @@ Each connection has a live **Test** button. OllaBridge takes an `ob_test_…` /
 `ob_live_…` key; GitPilot and MatrixLab take an optional token. Secrets are
 encrypted at rest (Fernet) and masked in the UI.
 
+## Code reviews and routines
+
+The console includes the **Reviews** and **Routines** pages. Running them needs
+the full SelfRepair server: API, Arq worker, PostgreSQL, Redis, and a GitHub App
+for webhooks and the `SelfRepair / Review` check. This Space has none of those,
+so those pages show empty lists and the opt-in defaults (`enabled: false`,
+`engine: deterministic`). Saving review settings or creating a routine answers
+`501` with that explanation. The Space never shows a review it did not run.
+
+## Updating this Space
+
+The Space serves a prebuilt copy of `frontend/` from `webapp/spa`. Before
+pushing this folder to the Space, rebuild it from the repository root:
+
+```bash
+make hf-space
+```
+
+Then push `deploy/huggingface/` as the Space repository root.
+
+### Automatic deploys
+
+`.github/workflows/deploy-hf-space.yml` does all of this on every push to
+`master` that touches `deploy/huggingface/`, `frontend/` or the build script,
+and on demand from the Actions tab (**Deploy Hugging Face Space → Run workflow**).
+It rebuilds the console, tests the Space API, builds the image and checks
+`/health`, pushes the tracked files of this folder to
+[`ruslanmv/selfrepair`](https://huggingface.co/spaces/ruslanmv/selfrepair), and
+waits until the Space runs that exact commit and answers `/health`.
+
+It needs one repository secret, `HF_TOKEN`: a Hugging Face token with write
+access to the Space. `HF_USERNAME` and `SPACE_NAME` repository variables
+override the target (default `ruslanmv` / `selfrepair`). Space secrets such as
+`ADMIN_PASSWORD` or `DATABASE_URL` stay in the Space settings on Hugging Face.
+
 ## Golden rules
 
 - **Only OllaBridge holds `HF_TOKEN`.** This Space never stores it — it talks

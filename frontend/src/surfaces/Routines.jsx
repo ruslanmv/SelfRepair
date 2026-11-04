@@ -209,9 +209,9 @@ function RoutineEditor({ open, routine, repos, routines, initialKind, onClose, o
 
         <div style={{ padding: "16px 18px" }}>
           <div
+            className="grid-2"
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
               gap: 12,
               marginBottom: 16,
             }}
@@ -255,9 +255,9 @@ function RoutineEditor({ open, routine, repos, routines, initialKind, onClose, o
             What should this routine do?
           </div>
           <div
+            className="grid-2"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
               gap: 8,
               marginBottom: 16,
             }}
@@ -348,9 +348,9 @@ function RoutineEditor({ open, routine, repos, routines, initialKind, onClose, o
           </div>
 
           <div
+            className="grid-2"
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
               gap: 14,
               marginBottom: 16,
             }}
@@ -695,9 +695,9 @@ export function Routines() {
       </div>
 
       <div
+        className="grid-3"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
           gap: 10,
           marginBottom: 14,
         }}
@@ -746,9 +746,9 @@ export function Routines() {
         </span>
       </div>
       <div
+        className="grid-4"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
           gap: 9,
           marginBottom: 20,
         }}
