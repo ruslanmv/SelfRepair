@@ -20,7 +20,12 @@ shapes are derived by inspecting the surfaces that consume them.
 from __future__ import annotations
 
 import json
+import os
+import re
 from typing import Any
+from urllib.parse import urlsplit
+
+import httpx
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -473,6 +478,131 @@ async def connections_list(request: Request):
         db.close()
 
 
+def _validated_connection_url(raw: str) -> str:
+    """Accept only safe service URLs; never allow credentials in the URL."""
+    value = raw.strip().rstrip("/")
+    try:
+        parsed = urlsplit(value)
+        if (
+            not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("invalid connection URL")
+        local_dev = (
+            os.getenv("SELFREPAIR_INSECURE_COOKIES") == "1"
+            and parsed.hostname in {"localhost", "127.0.0.1"}
+        )
+        if parsed.scheme != "https" and not (local_dev and parsed.scheme == "http"):
+            raise ValueError("connection URL must use HTTPS")
+        if parsed.port is not None and not (1 <= parsed.port <= 65535):
+            raise ValueError("invalid port")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Enter a valid HTTPS service URL (localhost HTTP is for development only).",
+        ) from exc
+    return value
+
+
+def _ensure_secret_key() -> None:
+    """Never persist a new token using the crypto module's dev fallback key."""
+    if (
+        not (os.getenv("SELFREPAIR_SECRET_KEY") or os.getenv("SESSION_SECRET"))
+        and os.getenv("SELFREPAIR_INSECURE_COOKIES") != "1"
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Server encryption key is not configured. Set SELFREPAIR_SECRET_KEY.",
+        )
+
+
+@router.post("/connections/ollabridge/pair")
+async def connections_pair_ollabridge(request: Request):
+    """Exchange a Cloud dashboard code server-side; never return the device token."""
+    user = _require(request)
+    _ensure_secret_key()
+    body = await _json_body(request)
+    raw = body.get("code")
+    if not isinstance(raw, str) or not re.fullmatch(
+        r"[A-Z0-9]{4}-?[A-Z0-9]{4}", raw.strip().upper()
+    ):
+        raise HTTPException(status_code=422, detail="Enter the 8-character OllaBridge pairing code.")
+    compact = raw.strip().upper().replace("-", "")
+    code = f"{compact[:4]}-{compact[4:]}"
+
+    allowed, _ = redis_client.rate_limit(
+        "ollabridge-pair", user.id, limit=5, window_seconds=600
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many pairing attempts. Try again later.")
+
+    try:
+        # Fixed cloud origin prevents a client-controlled SSRF target.
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=8.0),
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            remote = await client.post(
+                "https://app.ollabridge.com/device/pair-simple",
+                json={"code": code},
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502, detail="OllaBridge Cloud is unavailable. Try again."
+        ) from exc
+    if remote.status_code == 429:
+        raise HTTPException(status_code=429, detail="OllaBridge pairing is rate-limited. Try later.")
+    try:
+        payload = remote.json()
+    except ValueError:
+        payload = {}
+    # Fail closed: never persist or echo a partial/invalid pairing response.
+    token = payload.get("device_token") if isinstance(payload, dict) else None
+    if remote.status_code != 200 or payload.get("status") != "ok" or not isinstance(token, str) or not token:
+        raise HTTPException(
+            status_code=422, detail="Pairing failed. Check the code or generate a new one in OllaBridge."
+        )
+
+    _ensure_connections(user.id)
+    db = SessionLocal()
+    try:
+        conn = db.query(Connection).filter_by(user_id=user.id, provider="ollabridge").first()
+        conn.base_url = "https://app.ollabridge.com/v1"
+        conn.api_key_enc = crypto.encrypt(token)
+        probe = clients.test_ollabridge(conn.base_url, token)
+        conn.status = probe["status"]
+        conn.detail = probe["detail"]
+        conn.last_checked_at = datetime.now(timezone.utc)
+        db.add(AuditLog(user_id=user.id, action="connection_paired:ollabridge", details=probe["status"]))
+        db.commit()
+        return {"pairing": "paired", **probe}
+    finally:
+        db.close()
+
+
+@router.delete("/connections/{provider}", status_code=204)
+async def connections_disconnect(request: Request, provider: str):
+    user = _require(request)
+    if provider not in clients.PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    _ensure_connections(user.id)
+    db = SessionLocal()
+    try:
+        conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
+        conn.api_key_enc = None
+        conn.status = "unknown"
+        conn.detail = "Credentials removed. Configure and verify to reconnect."
+        conn.last_checked_at = None
+        db.add(AuditLog(user_id=user.id, action=f"connection_disconnected:{provider}", details="removed"))
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/connections/{provider}")
 async def connections_save(request: Request, provider: str):
     user = _require(request)
@@ -480,12 +610,15 @@ async def connections_save(request: Request, provider: str):
         raise HTTPException(status_code=404, detail="Unknown provider")
     _ensure_connections(user.id)
     body = await _json_body(request)
-    base_url = str(body.get("base_url") or "")
+    base_url = str(body.get("base_url") or "").strip() or clients.DEFAULTS[provider]
     api_key = str(body.get("api_key") or "")
+    base_url = _validated_connection_url(base_url)
+    if api_key.strip():
+        _ensure_secret_key()
     db = SessionLocal()
     try:
         conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
-        conn.base_url = (base_url or clients.DEFAULTS[provider]).strip()
+        conn.base_url = base_url
         if api_key.strip():
             conn.api_key_enc = crypto.encrypt(api_key.strip())
         secret = crypto.decrypt(conn.api_key_enc or "")
@@ -510,7 +643,8 @@ async def connections_test(request: Request, provider: str):
     try:
         conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
         secret = crypto.decrypt(conn.api_key_enc or "")
-        result = clients.test_provider(provider, conn.base_url or clients.DEFAULTS[provider], secret)
+        endpoint = _validated_connection_url(conn.base_url or clients.DEFAULTS[provider])
+        result = clients.test_provider(provider, endpoint, secret)
         conn.status = result["status"]
         conn.detail = result["detail"]
         conn.last_checked_at = datetime.now(timezone.utc)
