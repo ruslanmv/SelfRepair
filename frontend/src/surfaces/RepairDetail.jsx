@@ -129,12 +129,11 @@ export const RepairDetail = ({ repairId, onNav, onOpenAudit }) => {
       </div>
 
       <div
-        className="card"
+        className="card grid-4 grid-kpi"
         style={{
           padding: 0,
           marginBottom: 12,
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
         }}
       >
         {[
@@ -219,9 +218,9 @@ export const RepairDetail = ({ repairId, onNav, onOpenAudit }) => {
 
       {tab === "summary" && (
         <div
+          className="grid-2"
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
             gap: 12,
           }}
         >

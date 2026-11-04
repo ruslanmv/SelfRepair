@@ -313,7 +313,7 @@ export default function App() {
   const topbarRight = (
     <>
       {autoActive && (
-        <span className="pill pill-info" title={`${autoCount} repos under continuous auto-repair`}>
+        <span className="pill pill-info topbar-pill" title={`${autoCount} repos under continuous auto-repair`}>
           <span
             className="pill-dot"
             style={{ background: "var(--cyan)", animation: "pulse 1.6s infinite" }}
@@ -325,8 +325,9 @@ export default function App() {
         className="btn"
         onClick={() => setAutoOpen(true)}
         title="Configure auto-repair across selected repos"
+        aria-label="Auto-repair"
       >
-        <Icon name="settings" s={13} /> Auto-repair
+        <Icon name="settings" s={13} /> <span className="btn-label">Auto-repair</span>
       </button>
       <button
         className="btn btn-primary"
@@ -335,8 +336,9 @@ export default function App() {
           setRunOpen(true);
         }}
         title="Run a one-shot repair"
+        aria-label="Run repair"
       >
-        <Icon name="play" s={12} /> Run repair
+        <Icon name="play" s={12} /> <span className="btn-label">Run repair</span>
       </button>
       <ChatToggle active={chatOpen} onClick={() => setChatOpen((o) => !o)} />
     </>

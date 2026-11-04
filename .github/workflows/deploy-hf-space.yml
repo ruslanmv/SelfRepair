@@ -1,0 +1,178 @@
+# =============================================================================
+# Deploy the SelfRepair console to the Hugging Face Space
+#   https://huggingface.co/spaces/ruslanmv/selfrepair
+# =============================================================================
+# On every push to master (and on demand) this workflow:
+#   1. rebuilds the console from frontend/ into deploy/huggingface/webapp/spa
+#   2. tests the Space API with the Space's own requirements
+#   3. builds the Space Docker image and checks /health, exactly as HF will
+#   4. pushes deploy/huggingface/ (git-tracked files only) as the Space root
+#   5. waits for the Space to report RUNNING and checks its live /health
+#
+# Required repository secret (Settings → Secrets and variables → Actions):
+#   HF_TOKEN      Hugging Face token with write access to the Space
+# Optional repository variables (defaults in brackets):
+#   HF_USERNAME   Space owner            [ruslanmv]
+#   SPACE_NAME    Space name             [selfrepair]
+#
+# The Space's own secrets (ADMIN_PASSWORD, DATABASE_URL, MAILTRAP_TOKEN, ...)
+# live in the Space settings on Hugging Face, never in this repository.
+# =============================================================================
+name: Deploy Hugging Face Space
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "deploy/huggingface/**"
+      - "frontend/**"
+      - "scripts/build_hf_space.sh"
+      - "tests/unit/test_hf_space_api.py"
+      - ".github/workflows/deploy-hf-space.yml"
+  workflow_dispatch:
+    inputs:
+      skip_wait:
+        description: "Do not wait for the Space to finish building"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time; a newer push supersedes a queued or running one so a
+  # burst of merges results in a single push (HF throttles bursts with 429).
+  group: hf-space-deploy
+  cancel-in-progress: true
+
+env:
+  HF_USERNAME: ${{ vars.HF_USERNAME || 'ruslanmv' }}
+  SPACE_NAME: ${{ vars.SPACE_NAME || 'selfrepair' }}
+
+jobs:
+  deploy:
+    name: build, verify, deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check the HF token is configured
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::Missing HF_TOKEN secret. Add a Hugging Face write token under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Rebuild the console into the Space
+        run: ./scripts/build_hf_space.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # the Space image's Python
+
+      - name: Test the Space API with the Space's requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r deploy/huggingface/requirements-web.txt pytest pydantic pyyaml
+          # --noconftest: the repo conftest imports the full selfrepair package,
+          # which the Space does not ship.
+          python -m pytest tests/unit/test_hf_space_api.py -k surfaces --noconftest -q -o addopts=""
+
+      - name: Build the Space image and check /health
+        run: |
+          docker build -t selfrepair-space:ci deploy/huggingface
+          docker run -d --name space -p 7860:7860 -e ADMIN_PASSWORD=ci-only-password selfrepair-space:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:7860/health; then echo; break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:7860/health >/dev/null || { docker logs space; exit 1; }
+          curl -fsS http://localhost:7860/ | grep -q '/assets/index-' || { echo "::error::console not served"; exit 1; }
+          test "$(docker exec space id -u)" = "1000"   # HF runs Spaces as uid 1000
+          docker rm -f space
+
+      - name: Assemble the Space tree (git-tracked files + rebuilt console)
+        run: |
+          DEPLOY_DIR="$RUNNER_TEMP/space"
+          rm -rf "$DEPLOY_DIR" && mkdir -p "$DEPLOY_DIR"
+          # Only tracked files, so local artefacts can never be published ...
+          git ls-files -z deploy/huggingface | while IFS= read -r -d '' f; do
+            dest="$DEPLOY_DIR/${f#deploy/huggingface/}"
+            mkdir -p "$(dirname "$dest")" && cp "$f" "$dest"
+          done
+          # ... plus the console the build step just produced.
+          rm -rf "$DEPLOY_DIR/webapp/spa"
+          cp -r deploy/huggingface/webapp/spa "$DEPLOY_DIR/webapp/spa"
+          find "$DEPLOY_DIR" -name "__pycache__" -prune -exec rm -rf {} +
+          find "$DEPLOY_DIR" -name "*.pyc" -delete
+          # HF rejects binaries that do not go through Xet/LFS; fail early instead.
+          python3 - "$DEPLOY_DIR" <<'PY'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          binary = [str(p.relative_to(root)) for p in root.rglob("*")
+                    if p.is_file() and b"\0" in p.read_bytes()[:8192]]
+          if binary:
+              print("::error::Binary files would be rejected by the Space: " + ", ".join(binary))
+              sys.exit(1)
+          PY
+          test -f "$DEPLOY_DIR/Dockerfile" && test -f "$DEPLOY_DIR/README.md"
+          echo "DEPLOY_DIR=$DEPLOY_DIR" >> "$GITHUB_ENV"
+          du -sh "$DEPLOY_DIR"
+
+      - name: Push to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          cd "$DEPLOY_DIR"
+          git init -q -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_REPOSITORY}@${GITHUB_SHA::8}"
+          echo "SPACE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          # Token in a header, not in the URL, so it never appears in git output.
+          auth="Authorization: Basic $(printf '%s:%s' "$HF_USERNAME" "$HF_TOKEN" | base64 -w0)"
+          remote="https://huggingface.co/spaces/${HF_USERNAME}/${SPACE_NAME}"
+          attempt=1; delay=10
+          until git -c http.extraHeader="$auth" push --force "$remote" main; do
+            if [ "$attempt" -ge 6 ]; then
+              echo "::error::Push to the Space failed after $attempt attempts."; exit 1
+            fi
+            echo "Push failed (attempt $attempt/6), likely an HF 429; retrying in ${delay}s"
+            sleep "$delay"; delay=$((delay * 2)); attempt=$((attempt + 1))
+          done
+
+      - name: Wait for the Space to run and check its live /health
+        if: ${{ !inputs.skip_wait }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          api="https://huggingface.co/api/spaces/${HF_USERNAME}/${SPACE_NAME}/runtime"
+          host="https://${HF_USERNAME}-${SPACE_NAME}.hf.space"
+          for i in $(seq 1 60); do
+            read -r stage sha < <(curl -fsS -H "Authorization: Bearer $HF_TOKEN" "$api" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("stage") or "UNKNOWN", d.get("sha") or "-")' \
+              || echo "UNKNOWN -")
+            echo "Space stage: $stage (running ${sha::8}, deployed ${SPACE_SHA::8})"
+            # Until HF picks up the new commit, `stage` describes the previous build.
+            if [ "$sha" != "$SPACE_SHA" ]; then sleep 15; continue; fi
+            case "$stage" in
+              RUNNING)
+                if curl -fsS "$host/health"; then echo; echo "Deployed ${SPACE_SHA::8}: $host"; exit 0; fi ;;
+              BUILD_ERROR|RUNTIME_ERROR|CONFIG_ERROR|NO_APP_FILE)
+                echo "::error::Space failed with $stage. See https://huggingface.co/spaces/${HF_USERNAME}/${SPACE_NAME}?logs=build"
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::Space did not reach RUNNING within 15 minutes."
+          exit 1

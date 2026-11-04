@@ -927,6 +927,170 @@ async def schedules(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Code reviews and routines.
+#
+# Both need the full SelfRepair server: PostgreSQL, Redis, the Arq worker, and
+# a GitHub App installation for webhooks and the `SelfRepair / Review` check.
+# This Space is the console only, so it answers with the same shapes the full
+# API uses — empty collections, the opt-in defaults, a clear refusal on writes
+# — and never with fabricated runs. A run id therefore always 404s here.
+# ---------------------------------------------------------------------------
+
+_FULL_SERVER = (
+    "Code reviews run on the full SelfRepair server (API, worker, PostgreSQL, "
+    "Redis and a GitHub App). This Hugging Face Space is the console only. "
+    "See docs/reviewer/deployment.md."
+)
+
+#: `ReviewerConfig()` defaults from selfrepair/config/repo_config.py. Reviews
+#: are opt-in, the engine is deterministic, read_only and auto_merge are fixed.
+#: tests/unit/test_hf_space_api.py keeps this in step with the real model.
+REVIEWER_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "triggers": {"push": True, "pull_request": True, "merge_request": True},
+    "branches": {"include": ["main", "master", "develop"], "exclude": []},
+    "engine": "deterministic",
+    "agents": {
+        "security": True,
+        "correctness": True,
+        "architecture": True,
+        "testing": True,
+    },
+    "review": {
+        "inline_comments": True,
+        "publish_summary": True,
+        "block_on": ["critical", "high"],
+    },
+    "execution": {
+        "read_only": True,
+        "sandbox_enabled": True,
+        "max_runtime_seconds": 600,
+        "max_tokens": 80000,
+        "max_usd": 1.0,
+    },
+    "remediation": {
+        "enabled": False,
+        "provider": "gitpilot",
+        "require_human_approval": True,
+        "auto_merge": False,
+    },
+    "policy_version": "1",
+}
+
+ROUTINE_KINDS = ["health_repair", "pr_review", "review_remediation", "promotion"]
+
+
+def _not_on_this_space() -> HTTPException:
+    return HTTPException(status_code=501, detail=_FULL_SERVER)
+
+
+def _review_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="review not found")
+
+
+@router.get("/reviews")
+async def reviews(request: Request):
+    _require(request)
+    return _empty_list()
+
+
+@router.post("/reviews/trigger")
+async def trigger_review(request: Request):
+    _require(request)
+    raise _not_on_this_space()
+
+
+@router.get("/reviews/{review_id}")
+async def review_detail(review_id: str, request: Request):
+    _require(request)
+    raise _review_not_found()
+
+
+@router.get("/reviews/{review_id}/findings")
+async def review_findings(review_id: str, request: Request):
+    _require(request)
+    raise _review_not_found()
+
+
+@router.get("/reviews/{review_id}/remediations")
+async def review_remediations(review_id: str, request: Request):
+    _require(request)
+    raise _review_not_found()
+
+
+@router.post("/reviews/{review_id}/retry")
+async def review_retry(review_id: str, request: Request):
+    _require(request)
+    raise _review_not_found()
+
+
+@router.post("/reviews/{review_id}/remediations")
+async def review_remediate(review_id: str, request: Request):
+    _require(request)
+    raise _review_not_found()
+
+
+@router.get("/review-settings")
+async def review_settings(request: Request):
+    _require(request)
+    return {"config": REVIEWER_DEFAULTS, "read_only": True, "reason": _FULL_SERVER}
+
+
+@router.put("/review-settings")
+async def put_review_settings(request: Request):
+    _require(request)
+    raise _not_on_this_space()
+
+
+@router.get("/repos/{repo_id}/review-settings")
+async def repo_review_settings(repo_id: str, request: Request):
+    _require(request)
+    return {"repo_id": repo_id, "config": REVIEWER_DEFAULTS, "read_only": True}
+
+
+@router.put("/repos/{repo_id}/review-settings")
+async def put_repo_review_settings(repo_id: str, request: Request):
+    _require(request)
+    raise _not_on_this_space()
+
+
+@router.get("/routines/capabilities")
+async def routine_capabilities(request: Request):
+    _require(request)
+    return {
+        "available": False,
+        "version": 1,
+        "execution": "unavailable",
+        "kinds": ROUTINE_KINDS,
+        "reason": _FULL_SERVER,
+    }
+
+
+@router.get("/routines")
+async def routines(request: Request):
+    _require(request)
+    return {"items": [], "count": 0}
+
+
+@router.post("/routines")
+async def create_routine(request: Request):
+    _require(request)
+    raise _not_on_this_space()
+
+
+@router.get("/routines/{routine_id}")
+async def routine_detail(routine_id: str, request: Request):
+    _require(request)
+    raise HTTPException(status_code=404, detail="routine not found")
+
+
+@router.get("/routines/{routine_id}/runs")
+async def routine_runs(routine_id: str, request: Request):
+    _require(request)
+    raise HTTPException(status_code=404, detail="routine not found")
+
+
+# ---------------------------------------------------------------------------
 # Admin (role-gated): user management, full audit, system status.
 # Every endpoint is gated by ``_require_admin`` which enforces RBAC on the
 # server (never trust the UI). Mutations are audited; secrets are never logged.
