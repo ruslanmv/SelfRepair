@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from .database import Job, Message, Notification, SessionLocal
+from .database import Connection, Job, Message, Notification, SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +258,110 @@ _ISSUE_PATHS = {
 _DEFAULT_FORBIDDEN = [".env", "secrets/**", "**/*token*", "**/*secret*"]
 
 
+def _saved_endpoint(provider: str) -> tuple[str, str | None, str]:
+    """Return ``(base_url, token, source)`` for a provider.
+
+    A saved connection for this Space wins over environment variables.
+    The token is decrypted in process and is not logged. When several users
+    have configured the same provider, the most recently updated row that
+    still has a credential is used. This Space is operated as one workspace.
+    """
+    from .connector_service import decrypt
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Connection)
+            .filter(Connection.provider == provider)
+            .order_by(Connection.updated_at.desc())
+            .all()
+        )
+    finally:
+        db.close()
+    # A saved row, including one whose credential was removed, blocks the
+    # environment token. Otherwise disconnect would silently revive it.
+    fallback: tuple[str, str | None, str] | None = None
+    for row in rows:
+        if not row.base_url:
+            continue
+        if (row.status or "") == "disconnected":
+            fallback = fallback or (row.base_url.rstrip("/"), None, "saved")
+            continue
+        secret = ""
+        try:
+            secret = decrypt(row.api_key_enc or "")
+        except Exception:
+            logger.warning("saved %s credential could not be decrypted", provider)
+            secret = ""
+        if secret:
+            return row.base_url.rstrip("/"), secret, "saved"
+        fallback = fallback or (row.base_url.rstrip("/"), None, "saved")
+    if fallback is not None:
+        return fallback
+    env_url, env_token = _env_endpoint(provider)
+    if env_url:
+        return env_url, env_token, "environment"
+    return "", None, "unconfigured"
+
+
+def _env_endpoint(provider: str) -> tuple[str, str | None]:
+    if provider == "gitpilot":
+        url = os.environ.get("SELFREPAIR_GITPILOT_URL") or os.environ.get("GITPILOT_URL") or ""
+        token = (
+            os.environ.get("SELFREPAIR_GITPILOT_TOKEN")
+            or os.environ.get("GITPILOT_TOKEN")
+            or os.environ.get("GITPILOT_API_TOKEN")
+        )
+        return url.rstrip("/"), token
+    if provider == "matrixlab":
+        url = os.environ.get("SELFREPAIR_MATRIXLAB_URL") or os.environ.get("MATRIXLAB_URL") or ""
+        token = (
+            os.environ.get("SELFREPAIR_MATRIXLAB_TOKEN")
+            or os.environ.get("MATRIXLAB_TOKEN")
+            or os.environ.get("MATRIXLAB_BEARER_TOKEN")
+        )
+        return url.rstrip("/"), token
+    return "", None
+
+
+def _matrixlab_capabilities(base: str, token: str | None) -> dict:
+    """Record sandbox connectivity. This does not execute a patch."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=8.0), follow_redirects=False, trust_env=False) as client:
+            response = client.get(f"{base}/capabilities", headers=headers)
+        if response.status_code in (401, 403):
+            return {
+                "provider": "matrixlab",
+                "status": "unauthorized",
+                "workflow_verified": False,
+                "note": "MatrixLab rejected the saved credential. No patch was executed.",
+            }
+        if response.status_code >= 400:
+            return {
+                "provider": "matrixlab",
+                "status": "unavailable",
+                "workflow_verified": False,
+                "note": f"MatrixLab returned HTTP {response.status_code}. No patch was executed.",
+            }
+        body = response.json() if response.content else {}
+        profiles = body.get("profiles") if isinstance(body, dict) else None
+        return {
+            "provider": "matrixlab",
+            "status": "reachable",
+            "profiles": profiles if isinstance(profiles, list) else [],
+            "workflow_verified": False,
+            "note": "Capabilities were read. A patch was not executed in the sandbox.",
+        }
+    except Exception as exc:  # pragma: no cover - depends on runtime egress
+        return {
+            "provider": "matrixlab",
+            "status": "unavailable",
+            "workflow_verified": False,
+            "note": f"MatrixLab unreachable ({type(exc).__name__}). No patch was executed.",
+        }
+
+
 def _gitpilot_patch_preview(
     repo_url: str, branch: str, issues: list[dict], task_id: str, client_id: str
 ) -> dict | None:
@@ -268,7 +372,7 @@ def _gitpilot_patch_preview(
     unreachable. SelfRepair never writes code itself — this delegates to
     GitPilot, the default coder. No HF_TOKEN is used.
     """
-    base = (os.environ.get("GITPILOT_URL") or "").rstrip("/")
+    base, token, source = _saved_endpoint("gitpilot")
     if not base:
         return None  # not wired — health-only report (as before)
 
@@ -294,7 +398,6 @@ def _gitpilot_patch_preview(
         "sandbox": {"provider": "matrixlab", "profile": "python-repair", "required": False},
     }
     headers = {"Content-Type": "application/json"}
-    token = os.environ.get("GITPILOT_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
     # Retry transient responses (429 rate-limit / 502/503/504) with backoff —
@@ -303,7 +406,11 @@ def _gitpilot_patch_preview(
 
     last_status: int | None = None
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(45.0, connect=10.0),
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             for attempt in range(3):
                 r = client.post(f"{base}/repair", json=plan, headers=headers)
                 last_status = r.status_code
@@ -323,6 +430,9 @@ def _gitpilot_patch_preview(
             "sandbox_result": data.get("sandbox_result"),
             "pr_url": data.get("pr_url"),
             "coder": "gitpilot",
+            "source": source,
+            "workflow_verified": data.get("status") in {"ok", "dry_run", "blocked", "needs_approval"},
+            "note": "GitPilot returned this dry-run response. SelfRepair did not apply a patch.",
         }
     except Exception as exc:  # pragma: no cover - depends on runtime egress
         return {"status": "unavailable", "note": f"GitPilot unreachable ({type(exc).__name__})."}
@@ -357,6 +467,12 @@ def _run_job(job_id: str) -> None:
             )
             if repair is not None:
                 report["repair"] = repair
+
+        matrix_base, matrix_token, matrix_source = _saved_endpoint("matrixlab")
+        if matrix_base:
+            sandbox = _matrixlab_capabilities(matrix_base, matrix_token)
+            sandbox["source"] = matrix_source
+            report["sandbox_check"] = sandbox
 
         job.report_json = json.dumps(report, default=str)
         job.health_score = report.get("health_score")

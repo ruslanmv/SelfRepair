@@ -13,6 +13,7 @@ Middleware stack (outermost first on requests):
 FastAPI applies middleware in reverse-add order, so the order of the
 `add_middleware` calls below is the inverse of the request flow above.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,6 +35,7 @@ from selfrepair.api.routes import (
     audit,
     auth,
     ci,
+    connections,
     dashboard,
     findings,
     health,
@@ -140,6 +142,7 @@ def build_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(routines.router)
     app.include_router(integrations.router)
+    app.include_router(connections.router)
     app.include_router(metrics.router)
     app.include_router(ci.router)
     app.include_router(issues.router)

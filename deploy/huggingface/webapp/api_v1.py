@@ -22,12 +22,33 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from datetime import datetime, timezone
 
 from . import auth_service, clients, crypto, email_service, redis_client
+from .connector_service import (
+    CLOUD_API_BASE,
+    CLOUD_PAIR_URL,
+    ConnectorError,
+    ConnectorState,
+    apply_disconnect,
+    apply_probe,
+    assert_mutation_origin,
+    ensure_encryption_configured,
+    interpret_pairing_response,
+    merged_secret,
+    normalize_pairing_code,
+    pairing_request_body,
+    pairing_submission,
+    public_view,
+    rate_limit as local_rate_limit,
+    response_payload,
+    validate_service_url,
+)
 from .database import (
     AuditLog,
     Connection,
@@ -446,19 +467,42 @@ async def integration_detail(request: Request, integration_id: str):
 # save/test logic so the green /connections page can be fully retired.
 # ---------------------------------------------------------------------------
 
+def _connection_state(conn: Connection) -> ConnectorState:
+    return ConnectorState(
+        provider=conn.provider,
+        base_url=conn.base_url or clients.DEFAULTS.get(conn.provider, ""),
+        secret=crypto.decrypt(conn.api_key_enc or ""),
+        status=conn.status or "unknown",
+        detail=conn.detail or "",
+        auth_method=getattr(conn, "auth_method", None),
+        last_checked_at=conn.last_checked_at,
+        last_attempted_at=getattr(conn, "last_attempted_at", None),
+    )
+
+
 def _connection_view(conn: Connection) -> dict[str, Any]:
-    secret = crypto.decrypt(conn.api_key_enc or "")
-    return {
-        "provider": conn.provider,
-        "label": clients.PROVIDER_LABELS.get(conn.provider, conn.provider),
-        "base_url": conn.base_url or clients.DEFAULTS.get(conn.provider, ""),
-        "has_secret": bool(secret),
-        "masked_secret": crypto.mask(secret),
-        "status": conn.status or "unknown",
-        "detail": conn.detail or "",
-        "last_checked_at": conn.last_checked_at.isoformat() if conn.last_checked_at else None,
-        "default_url": clients.DEFAULTS.get(conn.provider, ""),
-    }
+    return public_view(conn.provider, _connection_state(conn))
+
+
+def _persist_connection(conn: Connection, state: ConnectorState) -> None:
+    conn.base_url = state.base_url
+    try:
+        conn.api_key_enc = crypto.encrypt(state.secret) if state.secret else None
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    conn.status = state.status
+    conn.detail = (state.detail or "")[:2000]
+    conn.auth_method = state.auth_method
+    conn.last_checked_at = state.last_checked_at
+    conn.last_attempted_at = state.last_attempted_at
+
+
+def _guard_mutation(request: Request) -> None:
+    host = request.headers.get("host") or request.url.netloc
+    try:
+        assert_mutation_origin(request.headers, host=host)
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.get("/connections")
@@ -473,29 +517,137 @@ async def connections_list(request: Request):
         db.close()
 
 
+def _validated_connection_url(raw: str) -> str:
+    """Accept only safe service URLs; never allow credentials in the URL."""
+    try:
+        return validate_service_url(raw)
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _ensure_secret_key() -> None:
+    """Never persist a new token when production has no encryption key."""
+    try:
+        ensure_encryption_configured()
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post("/connections/ollabridge/pair")
+async def connections_pair_ollabridge(request: Request):
+    """Exchange a Cloud dashboard code server-side; never return the device token."""
+    user = _require(request)
+    _guard_mutation(request)
+    _ensure_secret_key()
+    body = await _json_body(request)
+    try:
+        code = normalize_pairing_code(body.get("code"))
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    allowed, _ = redis_client.rate_limit(
+        "ollabridge-pair", user.id, limit=5, window_seconds=600
+    )
+    if not allowed or not local_rate_limit("ollabridge-pair", user.id, limit=5, window_seconds=600):
+        raise HTTPException(status_code=429, detail="Too many pairing attempts. Try again later.")
+
+    try:
+        with pairing_submission(user.id):
+            try:
+                # Fixed cloud origin prevents a client-controlled SSRF target.
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(20.0, connect=8.0),
+                    follow_redirects=False,
+                    trust_env=False,
+                ) as client:
+                    remote = await client.post(CLOUD_PAIR_URL, json=pairing_request_body(code))
+            except httpx.RequestError as exc:
+                raise HTTPException(
+                    status_code=502, detail="OllaBridge Cloud is unavailable. Try again."
+                ) from exc
+            try:
+                payload = remote.json()
+            except ValueError:
+                payload = None
+            try:
+                token = interpret_pairing_response(remote.status_code, payload)
+            except ConnectorError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except ConnectorError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    _ensure_connections(user.id)
+    db = SessionLocal()
+    try:
+        conn = db.query(Connection).filter_by(user_id=user.id, provider="ollabridge").first()
+        probe = clients.test_ollabridge(CLOUD_API_BASE, token)
+        state = apply_probe(
+            _connection_state(conn),
+            provider="ollabridge",
+            base_url=CLOUD_API_BASE,
+            secret=token,
+            auth_method="pair",
+            probe=probe,
+        )
+        _persist_connection(conn, state)
+        db.add(AuditLog(user_id=user.id, action="connection_paired:ollabridge", details=state.status))
+        db.commit()
+        # Do not log the pairing code or the device token.
+        return response_payload(state, probe, pairing="paired")
+    finally:
+        db.close()
+
+
+@router.delete("/connections/{provider}", status_code=204)
+async def connections_disconnect(request: Request, provider: str):
+    user = _require(request)
+    _guard_mutation(request)
+    if provider not in clients.PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    _ensure_connections(user.id)
+    db = SessionLocal()
+    try:
+        conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
+        state = apply_disconnect(_connection_state(conn), provider)
+        _persist_connection(conn, state)
+        db.add(AuditLog(user_id=user.id, action=f"connection_disconnected:{provider}", details="removed"))
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/connections/{provider}")
 async def connections_save(request: Request, provider: str):
     user = _require(request)
+    _guard_mutation(request)
     if provider not in clients.PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider")
     _ensure_connections(user.id)
     body = await _json_body(request)
-    base_url = str(body.get("base_url") or "")
-    api_key = str(body.get("api_key") or "")
+    supplied = body.get("api_key")
+    api_key = supplied if isinstance(supplied, str) else ""
     db = SessionLocal()
     try:
         conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
-        conn.base_url = (base_url or clients.DEFAULTS[provider]).strip()
+        previous = _connection_state(conn)
+        raw_url = str(body.get("base_url") or "").strip() or previous.base_url or clients.DEFAULTS[provider]
+        base_url = _validated_connection_url(raw_url)
+        secret = merged_secret(previous.secret, api_key)
         if api_key.strip():
-            conn.api_key_enc = crypto.encrypt(api_key.strip())
-        secret = crypto.decrypt(conn.api_key_enc or "")
-        result = clients.test_provider(provider, conn.base_url, secret)
-        conn.status = result["status"]
-        conn.detail = result["detail"]
-        conn.last_checked_at = datetime.now(timezone.utc)
-        db.add(AuditLog(user_id=user.id, action=f"connection_saved:{provider}", details=result["status"]))
+            _ensure_secret_key()
+        result = clients.test_provider(provider, base_url, secret)
+        state = apply_probe(
+            previous,
+            provider=provider,
+            base_url=base_url,
+            secret=secret,
+            auth_method="key" if secret else None,
+            probe=result,
+        )
+        _persist_connection(conn, state)
+        db.add(AuditLog(user_id=user.id, action=f"connection_saved:{provider}", details=state.status))
         db.commit()
-        return {"ok": True, **result}
+        return response_payload(state, result)
     finally:
         db.close()
 
@@ -503,19 +655,27 @@ async def connections_save(request: Request, provider: str):
 @router.post("/connections/{provider}/test")
 async def connections_test(request: Request, provider: str):
     user = _require(request)
+    _guard_mutation(request)
     if provider not in clients.PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider")
     _ensure_connections(user.id)
     db = SessionLocal()
     try:
         conn = db.query(Connection).filter_by(user_id=user.id, provider=provider).first()
-        secret = crypto.decrypt(conn.api_key_enc or "")
-        result = clients.test_provider(provider, conn.base_url or clients.DEFAULTS[provider], secret)
-        conn.status = result["status"]
-        conn.detail = result["detail"]
-        conn.last_checked_at = datetime.now(timezone.utc)
+        previous = _connection_state(conn)
+        endpoint = _validated_connection_url(previous.base_url or clients.DEFAULTS[provider])
+        result = clients.test_provider(provider, endpoint, previous.secret)
+        state = apply_probe(
+            previous,
+            provider=provider,
+            base_url=endpoint,
+            secret=previous.secret,
+            auth_method=previous.auth_method,
+            probe=result,
+        )
+        _persist_connection(conn, state)
         db.commit()
-        return result
+        return response_payload(state, result)
     finally:
         db.close()
 

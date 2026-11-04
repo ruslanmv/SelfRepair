@@ -10,6 +10,7 @@ A task is stored on the review run under `metadata["remediations"]`. The
 record holds the plan (finding text and paths only), the approver, and the
 parsed GitPilot result. It never holds a prompt, a token, or the raw response.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +42,11 @@ class RemediationRefused(Exception):
 def _check_finding(finding: FindingRecord) -> None:
     if finding.validation_state != "accepted":
         raise RemediationRefused("finding was not accepted")
-    if not finding.file_path or ".." in finding.file_path.split("/") or finding.file_path.startswith("/"):
+    if (
+        not finding.file_path
+        or ".." in finding.file_path.split("/")
+        or finding.file_path.startswith("/")
+    ):
         raise RemediationRefused("finding path is not a repository path")
 
 
@@ -178,13 +183,21 @@ def repo_url_for(run: RunRecord) -> str:
     return f"https://github.com/{full_name}"
 
 
-def gitpilot_client_from_env() -> Any:
-    """The live `POST /repair` client, configured from the environment."""
-    from selfrepair.coders.gitpilot_client import GitPilotClient
+def gitpilot_client_from_env(org_id: str | None = None) -> Any:
+    """The live `POST /repair` client.
 
-    url = os.getenv("SELFREPAIR_GITPILOT_URL") or os.getenv("GITPILOT_URL") or None
-    token = os.getenv("SELFREPAIR_GITPILOT_TOKEN") or os.getenv("GITPILOT_API_TOKEN") or None
-    return GitPilotClient(url or "http://localhost:9000", token=token, timeout=300.0)
+    A saved organization connection is used when ``org_id`` is known.
+    Environment variables are the fallback when that organization has no
+    saved row. An unsafe URL is not contacted.
+    """
+    from selfrepair.coders.gitpilot_client import GitPilotClient
+    from selfrepair.connectors.runtime import resolve_service
+
+    resolved = resolve_service("gitpilot", org_id=org_id)
+    if resolved.source == "rejected" or not resolved.base_url:
+        logger.warning("gitpilot connector rejected: %s", resolved.detail or resolved.source)
+        return GitPilotClient("http://127.0.0.1:9", token=None, timeout=2.0)
+    return GitPilotClient(resolved.base_url, token=resolved.token, timeout=300.0)
 
 
 def _now() -> str:
@@ -280,7 +293,9 @@ def _result_summary(response: Any) -> tuple[str, dict[str, Any]]:
             item.get("path") if isinstance(item, dict) else item
             for item in raw.get("changed_files") or []
         ]
-    review = getattr(response, "review", None) if not isinstance(response, dict) else raw.get("review")
+    review = (
+        getattr(response, "review", None) if not isinstance(response, dict) else raw.get("review")
+    )
     summary = {
         "status": gp_status,
         "risk_level": str(getattr(response, "risk_level", None) or raw.get("risk_level") or ""),
@@ -322,8 +337,9 @@ async def execute_task(
     await _save_task(store, review_id, task)
     try:
         # The live client is synchronous httpx; keep the worker loop free.
+        org_id = str(run.org_id) if getattr(run, "org_id", None) else None
         response = await asyncio.to_thread(
-            submit_repair_plan, plan, client or gitpilot_client_from_env()
+            submit_repair_plan, plan, client or gitpilot_client_from_env(org_id)
         )
     except RemediationRefused as exc:
         task.update(status="refused", error=exc.reason, completed_at=_now())

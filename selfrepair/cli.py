@@ -14,7 +14,9 @@ from selfrepair.settings import get_settings
 # `server` extra (arq/sqlalchemy/...) transitively, and the generic
 # scan/plan/repair commands must run without that stack installed.
 
-app = typer.Typer(add_completion=False, help="SelfRepair Repo CLI – autonomous repo health & repair")
+app = typer.Typer(
+    add_completion=False, help="SelfRepair Repo CLI – autonomous repo health & repair"
+)
 console = Console()
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,9 @@ def check_repo(repo_name: str) -> None:
 
 @app.command("check-url")
 def check_url(
-    repo_url: str = typer.Argument(..., help="Git clone URL, for example https://github.com/owner/repo.git"),
+    repo_url: str = typer.Argument(
+        ..., help="Git clone URL, for example https://github.com/owner/repo.git"
+    ),
     branch: str = typer.Option("main", "--branch", help="Branch to clone"),
 ) -> None:
     """Check a single repository directly from a Git URL.
@@ -142,12 +146,15 @@ def fix_space(
     runtime_info = None
     try:
         from huggingface_hub import HfApi
+
         hf_api = HfApi(token=settings.hf_token)
         info = hf_api.space_info(space_id)
         if info.runtime:
             runtime_info = info.runtime.raw
         console.print(f"[cyan]Space found:[/cyan] {space_id}")
-        console.print(f"  SDK: {info.sdk}, Stage: {info.runtime.stage if info.runtime else 'unknown'}")
+        console.print(
+            f"  SDK: {info.sdk}, Stage: {info.runtime.stage if info.runtime else 'unknown'}"
+        )
     except Exception as exc:
         console.print(f"[yellow]Warning: Could not fetch Space info: {exc}[/yellow]")
 
@@ -161,7 +168,9 @@ def fix_space(
         console.print(f"[cyan]Cloning {space_id}...[/cyan]")
         result = subprocess.run(
             ["git", "clone", "--depth=1", clone_url, str(repo_dir)],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode != 0:
             console.print(f"[red]Clone failed: {result.stderr}[/red]")
@@ -220,8 +229,11 @@ def fix_space(
             console.print("\n[cyan]Managing hardware...[/cyan]")
             try:
                 from selfrepair.inventory.hf_hardware import request_zerogpu
+
                 success, hw_report = request_zerogpu(
-                    hf_api, space_id, namespace,
+                    hf_api,
+                    space_id,
+                    namespace,
                     auto_free=settings.hf_auto_free_zerogpu,
                     exclude=settings.hf_zerogpu_exclude_set,
                 )
@@ -237,6 +249,7 @@ def fix_space(
 
         # Store diagnosis in report
         from selfrepair.models import SpaceDiagnosisResult
+
         report.space_diagnosis = SpaceDiagnosisResult(
             sdk=diag.sdk,
             app_file=diag.app_file,
@@ -309,7 +322,9 @@ def scan(
 def plan_cmd(
     repo_url: str = typer.Argument(..., help="Repo clone URL or local path"),
     branch: str = typer.Option("main", "--branch", help="Branch to analyze"),
-    output: str = typer.Option("repair-plan.json", "--output", "-o", help="Where to write the plan JSON"),
+    output: str = typer.Option(
+        "repair-plan.json", "--output", "-o", help="Where to write the plan JSON"
+    ),
 ) -> None:
     """Build the repair-plan and write it to a JSON file."""
     import json
@@ -346,22 +361,42 @@ def repair_cmd(
     plan_dict = plan.to_dict()
     plan_dict["risk_level"] = risk
 
-    # Delegate code writing to GitPilot (degrades to stub offline).
-    gitpilot = GitPilotClient(base_url=settings.gitpilot_url)
-    repair_response = gitpilot.repair(plan_dict, dry_run=dry_run)
+    # Delegate code writing to GitPilot. A saved connector wins over env.
+    from selfrepair.connectors.runtime import resolve_service
 
-    # Ask MatrixLab to validate (degrades to skipped when unreachable).
-    matrixlab = MatrixLabClient(base_url=settings.matrixlab_url)
-    validation_skipped = not matrixlab.health()
+    git_resolved = resolve_service("gitpilot")
+    if git_resolved.source == "rejected" or not git_resolved.base_url:
+        console.print(f"[red]GitPilot was not called:[/red] {git_resolved.detail}")
+        repair_response = GitPilotClient.stub_response(plan_dict, dry_run=dry_run)
+    else:
+        gitpilot = GitPilotClient(base_url=git_resolved.base_url, token=git_resolved.token)
+        repair_response = gitpilot.repair(plan_dict, dry_run=dry_run)
+
+    # Ask MatrixLab to validate. Health is not treated as a completed run.
+    matrix_resolved = resolve_service("matrixlab")
+    validation_skipped = True
     validation_result = None
-    if not validation_skipped:
-        validation_result = matrixlab.validate_patch(
-            client_id=plan.client_id,
-            workspace_id=plan.workspace_id,
-            repo_url=plan.repo_url,
-            branch=plan.branch,
-            profile=plan.sandbox.profile,
-        )
+    if matrix_resolved.source == "rejected" or not matrix_resolved.base_url:
+        console.print(f"[red]MatrixLab was not called:[/red] {matrix_resolved.detail}")
+    else:
+        matrixlab = MatrixLabClient(base_url=matrix_resolved.base_url, token=matrix_resolved.token)
+        if not matrixlab.health():
+            console.print(
+                "[yellow]MatrixLab health check failed. The patch was not executed.[/yellow]"
+            )
+        else:
+            validation_result = matrixlab.validate_patch(
+                client_id=plan.client_id,
+                workspace_id=plan.workspace_id,
+                repo_url=plan.repo_url,
+                branch=plan.branch,
+                profile=plan.sandbox.profile,
+            )
+            validation_skipped = bool(getattr(validation_result, "stubbed", False))
+            if validation_skipped:
+                console.print(
+                    "[yellow]MatrixLab did not execute the patch. Validation was not performed.[/yellow]"
+                )
 
     paths = build_reports(
         plan=plan,
@@ -372,10 +407,20 @@ def repair_cmd(
     )
 
     console.print(f"[bold]Health score:[/bold] {plan.health_score}/100  [bold]Risk:[/bold] {risk}")
-    console.print(f"[bold]Coder:[/bold] {coder}  status={repair_response.status} stubbed={repair_response.stubbed}")
-    console.print(f"[bold]Sandbox:[/bold] {sandbox}  {'skipped' if validation_skipped else 'validated'}")
+    if repair_response.stubbed:
+        console.print(
+            "[yellow]GitPilot did not run. The preview is an offline stub, not a completed repair.[/yellow]"
+        )
+    console.print(
+        f"[bold]Coder:[/bold] {coder} ({git_resolved.source})  "
+        f"status={repair_response.status} stubbed={repair_response.stubbed}"
+    )
+    sandbox_label = "not executed" if validation_skipped else "executed"
+    console.print(f"[bold]Sandbox:[/bold] {sandbox} ({matrix_resolved.source})  {sandbox_label}")
     console.print(f"Reports: {paths['json']} | {paths['md']} | {paths['html']}")
-    console.print("[green]Dry-run complete. No PR created.[/green]" if dry_run else "Repair flow complete.")
+    console.print(
+        "[green]Dry-run complete. No PR created.[/green]" if dry_run else "Repair flow complete."
+    )
 
 
 if __name__ == "__main__":
