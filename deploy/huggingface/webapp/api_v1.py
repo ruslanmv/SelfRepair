@@ -1105,37 +1105,32 @@ _FULL_SERVER = (
 #: `ReviewerConfig()` defaults from selfrepair/config/repo_config.py. Reviews
 #: are opt-in, the engine is deterministic, read_only and auto_merge are fixed.
 #: tests/unit/test_hf_space_api.py keeps this in step with the real model.
-REVIEWER_DEFAULTS: dict[str, Any] = {
-    "enabled": False,
-    "triggers": {"push": True, "pull_request": True, "merge_request": True},
-    "branches": {"include": ["main", "master", "develop"], "exclude": []},
-    "engine": "deterministic",
-    "agents": {
-        "security": True,
-        "correctness": True,
-        "architecture": True,
-        "testing": True,
-    },
-    "review": {
-        "inline_comments": True,
-        "publish_summary": True,
-        "block_on": ["critical", "high"],
-    },
-    "execution": {
-        "read_only": True,
-        "sandbox_enabled": True,
-        "max_runtime_seconds": 600,
-        "max_tokens": 80000,
-        "max_usd": 1.0,
-    },
-    "remediation": {
-        "enabled": False,
-        "provider": "gitpilot",
-        "require_human_approval": True,
-        "auto_merge": False,
-    },
-    "policy_version": "1",
-}
+REVIEWER_DEFAULTS: dict[str, Any] = {   'enabled': False,
+    'triggers': {'push': True, 'pull_request': True, 'merge_request': True},
+    'branches': {'include': ['main', 'master', 'develop'], 'exclude': []},
+    'engine': 'deterministic',
+    'mentions': {   'enabled': True,
+                    'handles': ['selfrepair', 'gitpilot'],
+                    'allowed_associations': ['OWNER', 'MEMBER', 'COLLABORATOR']},
+    'agents': {   'security': True,
+                  'correctness': True,
+                  'architecture': True,
+                  'testing': True},
+    'review': {   'inline_comments': True,
+                  'publish_summary': True,
+                  'style': 'codex',
+                  'min_inline_priority': 'P2',
+                  'block_on': ['critical', 'high']},
+    'execution': {   'read_only': True,
+                     'sandbox_enabled': True,
+                     'max_runtime_seconds': 600,
+                     'max_tokens': 80000,
+                     'max_usd': 1.0},
+    'remediation': {   'enabled': False,
+                       'provider': 'gitpilot',
+                       'require_human_approval': True,
+                       'auto_merge': False},
+    'policy_version': '1'}
 
 ROUTINE_KINDS = ["health_repair", "pr_review", "review_remediation", "promotion"]
 
