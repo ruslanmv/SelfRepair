@@ -121,7 +121,7 @@ def test_codex_payload_inlines_p2_and_lists_p3() -> None:
     review = next(p for p in payloads if p["kind"] == "review")["body"]
     assert review["event"] == "COMMENT"
     assert [c["line"] for c in review["comments"]] == [11]
-    assert "outside the inline threshold" in review["body"]
+    assert "below the inline threshold" in review["body"]
 
 
 def test_codex_skips_a_review_when_everything_was_already_posted() -> None:
@@ -507,7 +507,7 @@ def test_inline_comments_are_capped_by_priority() -> None:
                               already_published=set(), options=PublishOptions(max_inline_comments=2))
     review = next(p for p in payloads if p["kind"] == "review")["body"]
     assert [c["line"] for c in review["comments"]] == [12, 11]
-    assert "outside the inline threshold" in review["body"]
+    assert "below the inline threshold" in review["body"]
 
 
 def test_security_code_is_reviewed_first() -> None:
@@ -518,3 +518,14 @@ def test_security_code_is_reviewed_first() -> None:
     ordered = sorted((DiffFile(path=p, patch="x") for p in paths), key=review_priority)
     assert [f.path for f in ordered] == ["app/auth.py", "app/views.py", ".github/workflows/ci.yml",
                                          "tests/test_x.py", "README.md"]
+
+
+def test_annotations_are_plain_text_and_also_noted_comes_before_the_commit() -> None:
+    findings = [_finding("medium", "f1"), _finding("low", "f2", line=12)]
+    payloads = build_payloads(event=_event(), run=_run(), findings=findings, conclusion="success",
+                              summary="s", already_published=set(), options=PublishOptions())
+    check = next(p for p in payloads if p["kind"] == "check")["body"]
+    message = check["output"]["annotations"][0]["message"]
+    assert message.startswith("P2 · Allow the configuration form") and "<!--" not in message and "**" not in message
+    body = next(p for p in payloads if p["kind"] == "review")["body"]["body"]
+    assert body.index("Also noted") < body.index("Reviewed commit") < body.index("About SelfRepair")

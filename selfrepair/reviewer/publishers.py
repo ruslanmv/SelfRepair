@@ -268,11 +268,8 @@ def _codex_payloads(
         body = presentation.review_body(
             run.head_sha, listed if not inline else fresh,
             posted_inline=len(inline), incomplete=incomplete,
+            also=listed if inline else None,
         )
-        if inline and listed:
-            body += "\n\nAlso noted, outside the inline threshold:\n" + "\n".join(
-                f"- **{presentation.priority(item.severity)}** {item.title}" for item in listed
-            )
         out.append({
             "kind": "review",
             "body": {
@@ -309,7 +306,7 @@ def github_check_body(
                 "start_line": finding.start_line,
                 "end_line": finding.end_line or finding.start_line,
                 "annotation_level": _annotation_level(finding.severity),
-                "message": _comment(finding)[:60000],
+                "message": presentation.annotation_text(finding)[:60000],
                 "title": finding.title[:255],
             }
         )

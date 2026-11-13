@@ -83,12 +83,21 @@ def inline_comment(finding: FindingRecord) -> str:
     return "\n".join(parts)
 
 
+def annotation_text(finding: FindingRecord) -> str:
+    """Check-run annotations are plain text: no Markdown, no hidden markers."""
+    parts = [f"{priority(finding.severity)} · {' '.join(finding.title.split())}", "", finding.description.strip()]
+    if finding.suggested_fix:
+        parts += ["", f"Suggested fix: {finding.suggested_fix.strip()}"]
+    return "\n".join(parts)
+
+
 def review_body(
     head_sha: str,
     findings: list[FindingRecord],
     *,
     posted_inline: int,
     incomplete: str | None = None,
+    also: list[FindingRecord] | None = None,
 ) -> str:
     """The pull-request review that carries the inline comments.
 
@@ -117,6 +126,12 @@ def review_body(
             "",
         ]
         for finding in findings:
+            where = f" — `{finding.file_path}:{finding.start_line}`" if finding.file_path else ""
+            lines.append(f"- **{priority(finding.severity)}** {_one_line(finding.title)}{where}")
+        lines.append("")
+    if also:
+        lines.append("Also noted, below the inline threshold:")
+        for finding in also:
             where = f" — `{finding.file_path}:{finding.start_line}`" if finding.file_path else ""
             lines.append(f"- **{priority(finding.severity)}** {_one_line(finding.title)}{where}")
         lines.append("")
