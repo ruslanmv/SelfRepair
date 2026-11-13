@@ -54,7 +54,9 @@ _CATEGORIES = {"security", "correctness", "architecture", "testing"}
 _CHUNK_CHARS = 24_000
 _MAX_CALLS = 32
 # Parts sent at the same time. Small, so a free provider's rate limit holds.
-_PARALLEL = 3
+_PARALLEL = 2
+# Waits after a rate limit (429/503) or a reply that is not JSON, in seconds.
+_BACKOFF = (15.0, 45.0, 90.0)
 _MAX_TOKENS = 8_000
 _RETRY_NOTE = (
     "\n\nYour reply must be one compact JSON object and nothing else. "
@@ -113,6 +115,8 @@ class LLMReviewEngine:
         api_key: str | None = None,
         transport: httpx.BaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        fallback_model: str | None = None,
     ) -> None:
         self._url = (url or _first_env(
             "SELFREPAIR_REVIEW_LLM_URL", "SELFREPAIR_OLLABRIDGE_URL",
@@ -124,6 +128,11 @@ class LLMReviewEngine:
         )
         self._transport = transport
         self._clock = clock
+        self._sleep = sleep
+        # Used only for a part the main model could not answer (rate limits,
+        # replies that are not JSON). Empty: no fallback, the part is reported.
+        self._fallback = fallback_model if fallback_model is not None else _first_env(
+            "SELFREPAIR_REVIEW_FALLBACK_MODEL")
 
     @property
     def model_id(self) -> str:
@@ -190,33 +199,73 @@ class LLMReviewEngine:
         )
 
     def _ask(self, prompt: str, deadline: float) -> tuple[dict[str, Any], str | None]:
-        """One part: ask, retry once if the reply is cut off or not JSON, then salvage.
+        """One part, the way a production client talks to a shared free router.
+
+        * 429/503 (rate limited, all providers busy): wait and try again,
+          honouring ``Retry-After``, while the time budget allows.
+        * A reply that is cut off or not JSON: ask again with a reminder to
+          answer compactly; a reply that is prose (a small fallback model)
+          also waits first, since the router may be back on a capable model.
+        * Still nothing: the fallback model, if one is configured.
+        * Last resort: complete findings salvaged from a cut-off reply.
 
         Returns the parsed reply and, when it is only partial, why.
         """
-        raw = self._complete(prompt, timeout=deadline - self._clock())
-        try:
-            return parse_response(raw), None
-        except EngineUnavailable as first:
-            problem = first.reason
-        if deadline - self._clock() > 5:
-            retry = self._complete(prompt + _RETRY_NOTE, timeout=deadline - self._clock())
+        problem = "no reply"
+        best_raw = ""
+        for attempt, wait in enumerate((0.0, *_BACKOFF)):
+            if wait and not self._wait(wait, deadline):
+                break
+            note = _RETRY_NOTE if attempt else ""
             try:
-                return parse_response(retry), None
-            except EngineUnavailable as second:
-                problem = second.reason
-                raw = retry if len(retry) >= len(raw) else raw
-        found = salvage_findings(raw)
+                raw = self._complete(prompt + note, timeout=deadline - self._clock())
+            except _Transient as exc:
+                problem = exc.reason
+                if exc.retry_after and not self._wait(exc.retry_after, deadline):
+                    break
+                continue
+            try:
+                parsed = parse_response(raw)
+            except EngineUnavailable as exc:
+                problem = exc.reason
+                if len(raw) > len(best_raw):
+                    best_raw = raw
+                if "{" in raw and attempt == 0:
+                    # Cut off or malformed JSON: ask again at once, compactly.
+                    continue
+                continue
+            # Keep complete findings from an earlier cut-off reply as well.
+            parsed["findings"] = list(parsed["findings"]) + [
+                item for item in salvage_findings(best_raw) if item not in parsed["findings"]
+            ]
+            return parsed, None
+        if self._fallback and self._fallback != self._model and deadline - self._clock() > 10:
+            try:
+                raw = self._complete(prompt + _RETRY_NOTE, timeout=deadline - self._clock(),
+                                     model=self._fallback)
+                return parse_response(raw), None
+            except _Fatal:
+                raise
+            except EngineUnavailable as exc:
+                problem = f"{problem}; fallback {self._fallback}: {exc.reason}"
+        found = salvage_findings(best_raw)
         if found:
             return {"findings": found}, f"{problem}; kept {len(found)} complete finding(s)"
         raise EngineUnavailable(problem)
 
-    def _complete(self, prompt: str, *, timeout: float) -> str:
+    def _wait(self, seconds: float, deadline: float) -> bool:
+        """Sleep unless that would leave less than 10 seconds for the call."""
+        if self._clock() + seconds > deadline - 10:
+            return False
+        self._sleep(seconds)
+        return True
+
+    def _complete(self, prompt: str, *, timeout: float, model: str | None = None) -> str:
         headers = {"Content-Type": "application/json"}
         if self._key:
             headers["Authorization"] = f"Bearer {self._key}"
         body = {
-            "model": self._model,
+            "model": model or self._model,
             "temperature": 0,
             "max_tokens": _MAX_TOKENS,
             "messages": [
@@ -229,11 +278,17 @@ class LLMReviewEngine:
             with httpx.Client(transport=self._transport, timeout=min(timeout, 300)) as client:
                 response = client.post(url, json=body, headers=headers)
         except httpx.TimeoutException as exc:
-            raise EngineUnavailable("model timeout") from exc
+            raise _Transient("model timeout") from exc
         except httpx.HTTPError as exc:
             raise EngineUnavailable(f"model call failed: {type(exc).__name__}") from exc
         if response.status_code in {401, 403}:
             raise _Fatal(f"model endpoint refused the key ({response.status_code})")
+        if response.status_code in {429, 502, 503, 504}:
+            retry_after = response.headers.get("retry-after", "")
+            raise _Transient(
+                f"model endpoint busy ({response.status_code})",
+                float(retry_after) if retry_after.replace(".", "", 1).isdigit() else 0.0,
+            )
         if response.status_code >= 400:
             raise EngineUnavailable(f"model endpoint returned {response.status_code}")
         try:
@@ -439,6 +494,14 @@ def salvage_findings(raw: str) -> list[dict[str, Any]]:
 
 class _Fatal(EngineUnavailable):
     """The endpoint refused us; retrying other parts cannot help."""
+
+
+class _Transient(EngineUnavailable):
+    """Rate limited or every provider busy; worth waiting and asking again."""
+
+    def __init__(self, reason: str, retry_after: float = 0.0) -> None:
+        super().__init__(reason)
+        self.retry_after = min(max(retry_after, 0.0), 120.0)
 
 
 def to_findings(items: Any, paths: set[str]) -> list[FindingDraft]:

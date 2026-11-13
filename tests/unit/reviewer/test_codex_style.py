@@ -211,7 +211,7 @@ def _llm(reply: dict[str, Any] | None = None, status: int = 200, seen: list | No
             return httpx.Response(status, json={"error": "no"})
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(reply)}}]})
     return LLMReviewEngine(url="https://llm.test/v1", model="code-review", api_key="k",
-                           transport=httpx.MockTransport(handler))
+                           transport=httpx.MockTransport(handler), sleep=lambda _s: None, fallback_model="")
 
 
 def test_llm_engine_keeps_confident_findings_on_diff_files() -> None:
@@ -454,7 +454,7 @@ def _scripted(replies: list[Any], seen: list | None = None) -> LLMReviewEngine:
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     return LLMReviewEngine(url="https://llm.test/v1", model="m", api_key="k",
-                           transport=httpx.MockTransport(handler))
+                           transport=httpx.MockTransport(handler), sleep=lambda _s: None, fallback_model="")
 
 
 GOOD = {"title": "Allow the form to shrink", "body": "Clips on phones.", "priority": "P2",
@@ -471,7 +471,7 @@ def test_a_cut_off_reply_is_retried_once() -> None:
 
 def test_complete_findings_are_salvaged_from_a_cut_off_retry() -> None:
     cut = '{"findings": [' + json.dumps(GOOD) + ', {"title": "Second", "bo'
-    report = _scripted([cut, cut]).review(_event(), _diff(), ReviewerConfig())
+    report = _scripted([cut, cut, cut, cut]).review(_event(), _diff(), ReviewerConfig())
     assert [f.start_line for f in report.findings] == [11]
     assert report.incomplete_reason and "kept 1 complete finding" in report.incomplete_reason
 
@@ -480,12 +480,52 @@ def test_one_bad_part_does_not_discard_the_others(monkeypatch) -> None:
     from selfrepair.reviewer.engines import llm_engine
 
     monkeypatch.setattr(llm_engine, "_CHUNK_CHARS", 300)
-    monkeypatch.setattr(llm_engine, "_PARALLEL", 1)
     two_files = FORM_DIFF + FORM_DIFF.replace("web/Hub.jsx", "web/Other.jsx")
-    report = _scripted(["nope", "still nope", {"findings": [dict(GOOD, file="web/Other.jsx")]}]).review(
-        _event(), _diff(two_files), ReviewerConfig())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        prompt = json.loads(request.content)["messages"][1]["content"]
+        content = (json.dumps({"findings": [dict(GOOD, file="web/Other.jsx")]})
+                   if "web/Other.jsx" in prompt else "I cannot help with that.")
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    engine = LLMReviewEngine(url="https://llm.test/v1", model="m", api_key="k", fallback_model="",
+                             transport=httpx.MockTransport(handler), sleep=lambda _s: None)
+    report = engine.review(_event(), _diff(two_files), ReviewerConfig())
     assert [f.file_path for f in report.findings] == ["web/Other.jsx"]
     assert report.incomplete_reason and report.incomplete_reason.startswith("1 of 2 parts")
+
+
+def test_rate_limits_are_waited_out_and_retried() -> None:
+    waits: list[float] = []
+    replies = [503, 429, {"findings": [GOOD]}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        reply = replies.pop(0)
+        if isinstance(reply, int):
+            return httpx.Response(reply, headers={"retry-after": "7"}, json={})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(reply)}}]})
+
+    engine = LLMReviewEngine(url="https://llm.test/v1", model="m", api_key="k", fallback_model="",
+                             transport=httpx.MockTransport(handler), sleep=waits.append)
+    report = engine.review(_event(), _diff(), ReviewerConfig())
+    assert [f.start_line for f in report.findings] == [11] and report.incomplete_reason is None
+    assert 7.0 in waits
+
+
+def test_the_fallback_model_answers_a_part_the_main_model_could_not() -> None:
+    models: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        models.append(body["model"])
+        content = json.dumps({"findings": [GOOD]}) if body["model"] == "paid" else "prose"
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    engine = LLMReviewEngine(url="https://llm.test/v1", model="free-best", api_key="k", fallback_model="paid",
+                             transport=httpx.MockTransport(handler), sleep=lambda _s: None)
+    report = engine.review(_event(), _diff(), ReviewerConfig())
+    assert models[-1] == "paid" and models.count("paid") == 1
+    assert [f.start_line for f in report.findings] == [11]
 
 
 def test_a_refused_key_stops_the_whole_review() -> None:
