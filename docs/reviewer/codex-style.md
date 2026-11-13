@@ -9,17 +9,22 @@ by default). GitPilot writes fixes, and only when a maintainer asks.
 
 | When | What |
 | --- | --- |
-| Review starts | 👀 on the pull request (or on the `@selfrepair review` comment). The status comment gets a `🔄 In progress` row. The `SelfRepair / Review` check is `in_progress`. |
+| Review starts | 👀 on the pull request (or on the `@selfrepair review` comment). The status comment gets a `🔄 Running` row. The `SelfRepair / Review` check is `in_progress`. |
 | Review ends | The status comment row becomes `✅ Completed` / `⚠️ Incomplete` / `❌ Failed`. The check completes. A **💡 SelfRepair Review** names the reviewed commit and carries inline suggestions. |
 | Clean commit | "Didn't find any major issues. 🚀" and 👍 on the pull request. |
+| Review could not finish (model unavailable, diff unreadable, parts unreviewed) | "⚠️ Couldn't finish reviewing this commit" with the reason. Never the clean-commit message, never 👍, and the check is not a pass. |
 | Re-review, nothing new | Only the check and status comment change; suggestions already posted are not repeated. |
 
-Status comment (one per pull request, edited in place, last five rows):
+Status comment (one per pull request, edited in place, last five rows, collapsed;
+`<relative-time>` renders as "2 minutes ago" on GitHub):
 
 ```
-### SelfRepair Review Summary
+<details>
+<summary><strong>SelfRepair Review Summary</strong>: ✅ Completed</summary>
+
 | Review | Status | Commit | Review trigger |
-| 📝 Code Review | ✅ Completed 2026-11-13 10:02 UTC | `af3a4d7` | PR opened |
+| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-11-13T10:02:00Z">…</relative-time> | `af3a4d7` | PR opened |
+</details>
 ```
 
 Inline suggestion:
@@ -47,6 +52,8 @@ always reach the check.
 Handles: `reviewer.mentions.handles` (default `selfrepair`, `gitpilot`).
 Only `reviewer.mentions.allowed_associations` (default OWNER, MEMBER,
 COLLABORATOR) are obeyed. Bot comments, quoted lines and code blocks are ignored.
+Each command runs once per comment: a redelivered webhook does not start a
+second review or a second GitPilot task.
 
 ## Engine `llm`
 
@@ -59,9 +66,12 @@ COLLABORATOR) are obeyed. Bot comments, quoted lines and code blocks are ignored
   P0–P3, JSON only; repository text is declared untrusted.
 - Findings below 0.55 confidence, on files outside the diff, or on lines the
   diff does not contain are dropped (the latter by the validator).
-- Large diffs are split by file (60k characters per call, at most 6 calls,
-  within `execution.max_runtime_seconds`); anything unreviewed makes the run
-  incomplete rather than passing.
+- Large diffs are split by file, and a file larger than one call at hunk
+  boundaries (60k characters per call, at most 6 calls, within
+  `execution.max_runtime_seconds`). Parts that are not sent, or lines too long
+  to send, make the run incomplete rather than passing.
+- A reply without a `findings` array (`{}`, an error object) is not a review:
+  the engine raises `EngineUnavailable`.
 - No key, a refused key, or a bad reply raises `EngineUnavailable`: the
   deterministic findings are kept and the check is not a pass.
 

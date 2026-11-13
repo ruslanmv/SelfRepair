@@ -150,7 +150,8 @@ async def handle_github_comment(
         pr = await github.get_pull(info["repo_full_name"], info["pr_number"])
         if not pr:
             return "ignored"
-        event = event_from_pull(pr, info, delivery_id)
+        # Keyed on the comment, so a redelivered webhook is the same request.
+        event = event_from_pull(pr, info, f"review-comment:{info['comment_id']}")
         return await _dispatch(ctx, event)
     return await _fix(ctx, store, config, github, info)
 
@@ -165,6 +166,11 @@ async def _fix(ctx: dict[str, Any], store: Any, config: Any, github: Any, info: 
     )
 
     repo_name, number = info["repo_full_name"], info["pr_number"]
+    # One fix per comment. GitHub redelivers webhooks and each `create_task`
+    # gets a new task id, so without this claim a redelivery would ask GitPilot
+    # for a second branch and draft pull request.
+    if not await store.claim_delivery(provider="github", delivery_id=f"fix-comment:{info['comment_id']}"):
+        return "duplicate"
     await github.react(repo_name, info["comment_id"], "eyes")
     run = await _latest_run(store, info)
     if run is None:

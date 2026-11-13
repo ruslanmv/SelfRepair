@@ -242,12 +242,13 @@ def _codex_payloads(
     ]
     listed = [item for item in fresh if item not in inline]
     wants_review = bool(fresh) or not findings
+    incomplete = _incomplete_reason(conclusion, summary)
     if event.provider == "gitlab":
         out: list[dict[str, Any]] = [
             {"kind": "status", "body": gitlab_status_body(run, conclusion, summary), "fingerprints": []}
         ]
         if wants_review and event.pr_number is not None:
-            parts = [presentation.review_body(run.head_sha, fresh, posted_inline=0)]
+            parts = [presentation.review_body(run.head_sha, fresh, posted_inline=0, incomplete=incomplete)]
             parts += [presentation.inline_comment(item) for item in fresh]
             out.append({
                 "kind": "discussion",
@@ -261,7 +262,10 @@ def _codex_payloads(
         "fingerprints": [item.fingerprint for item in findings],
     }]
     if event.kind == "pull_request" and event.pr_number is not None and wants_review:
-        body = presentation.review_body(run.head_sha, listed if not inline else fresh, posted_inline=len(inline))
+        body = presentation.review_body(
+            run.head_sha, listed if not inline else fresh,
+            posted_inline=len(inline), incomplete=incomplete,
+        )
         if inline and listed:
             body += "\n\nAlso noted, outside the inline threshold:\n" + "\n".join(
                 f"- **{presentation.priority(item.severity)}** {item.title}" for item in listed
@@ -475,7 +479,7 @@ class GitHubHttpPublisher:
         if _codex(options, event):
             state = "completed" if conclusion in {"success", "failure"} else "incomplete"
             await self._status_comment(event, run.head_sha, state)
-            if not findings:
+            if not findings and conclusion == "success":
                 await self._react(event, "+1")
         return results
 
@@ -691,6 +695,16 @@ class GitLabHttpPublisher:
             url, json=body, headers={"PRIVATE-TOKEN": self._token}
         )
         _raise_if_rate_limited(response)
+
+
+def _incomplete_reason(conclusion: Conclusion, summary: str) -> str | None:
+    """Why a review did not finish, or None when it did (success or failure)."""
+    if conclusion in {"success", "failure"}:
+        return None
+    for line in summary.splitlines():
+        if line.startswith("Incomplete:"):
+            return line.removeprefix("Incomplete:").strip() or "analysis incomplete"
+    return "analysis incomplete"
 
 
 def _codex(options: PublishOptions | None, event: ReviewEvent) -> bool:
