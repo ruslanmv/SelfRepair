@@ -167,6 +167,9 @@ class ReviewerPublish(BaseModel):
     style: Literal["codex", "classic"] = "codex"
     # Lowest priority that is posted inline. P3 notes still reach the check.
     min_inline_priority: Literal["P0", "P1", "P2", "P3"] = "P2"
+    # Most-important findings posted inline; the rest are listed in the review
+    # body. Fewer, better comments get read.
+    max_inline_comments: int = Field(default=10, ge=0, le=50)
     block_on: list[SeverityLiteral] = Field(default_factory=lambda: ["critical", "high"])
 
 

@@ -240,6 +240,9 @@ def _codex_payloads(
         if item.side == "RIGHT" and item.file_path and item.start_line is not None
         and presentation.inline_allowed(item, options)
     ]
+    _rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    inline.sort(key=lambda item: (_rank.get(item.severity, 5), -item.confidence))
+    inline = inline[: options.max_inline_comments]
     listed = [item for item in fresh if item not in inline]
     wants_review = bool(fresh) or not findings
     incomplete = _incomplete_reason(conclusion, summary)

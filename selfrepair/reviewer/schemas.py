@@ -94,6 +94,9 @@ class DiffSet(BaseModel):
     truncated: bool = False
     source: str = "unavailable"
     error: str | None = None
+    # Generated files left out on purpose (lockfiles, bundles, source maps).
+    # Not reviewing them does not make the review incomplete.
+    skipped: list[str] = Field(default_factory=list)
 
     def changed_paths(self) -> list[str]:
         return [item.path for item in self.files]

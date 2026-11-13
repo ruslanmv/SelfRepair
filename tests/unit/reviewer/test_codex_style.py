@@ -363,7 +363,7 @@ def test_too_many_parts_or_cut_lines_make_the_review_incomplete(monkeypatch) -> 
     from selfrepair.reviewer.engines import llm_engine
 
     monkeypatch.setattr(llm_engine, "_CHUNK_CHARS", 2_000)
-    report = _llm({"findings": []}).review(_event(), _diff(_big_diff(600)), ReviewerConfig())
+    report = _llm({"findings": []}).review(_event(), _diff(_big_diff(1_200)), ReviewerConfig())
     assert report.incomplete_reason and "diff too large" in report.incomplete_reason
     report = _llm({"findings": []}).review(_event(), _diff(_big_diff(3, width=5_000)), ReviewerConfig())
     assert report.incomplete_reason and "too long" in report.incomplete_reason
@@ -410,3 +410,111 @@ async def test_a_redelivered_fix_comment_does_not_start_a_second_task() -> None:
     assert await handle_github_comment(ctx, "d-a", fix) == "completed"
     assert await handle_github_comment(ctx, "d-b", fix) == "duplicate"
     assert len(calls) == 1
+
+
+# ── regressions from reviewing ruslanmv/SelfRepair#14 (67 files, 3.4M chars) ──
+
+def test_generated_files_are_skipped_not_truncating_the_review() -> None:
+    from selfrepair.reviewer.diff import is_generated, limit_diff
+
+    bundle = parse_unified_diff(_big_diff(10).replace("big.py", "spa/assets/index-Dx2aEjyp.js"))
+    source = parse_unified_diff(FORM_DIFF)
+    limited = limit_diff(bundle + source)
+    assert limited.changed_paths() == ["web/Hub.jsx"]
+    assert limited.skipped == ["spa/assets/index-Dx2aEjyp.js"] and not limited.truncated
+    assert is_generated("package-lock.json") and is_generated("app.js.map")
+    assert not is_generated("docs/build/guide.md") and not is_generated("src/assets/logo.svg")
+
+
+def test_code_redaction_keeps_code_and_hides_values() -> None:
+    from selfrepair.ci.redaction import redact_code
+
+    code = 'secret = os.environ.get("KEY")\ntoken = payload.get("device_token")\npassword = "hunter2hunter2"'
+    out = redact_code(code).text
+    assert 'secret = os.environ.get("KEY")' in out and 'token = payload.get("device_token")' in out
+    assert "hunter2hunter2" not in out and 'password = "<<REDACTED:kv_secret:' in out
+
+
+def test_a_file_that_mentions_the_cut_marker_is_not_cut() -> None:
+    text = 'diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -0,0 +1 @@\n+_CUT = " …[line cut]"\n'
+    report = _llm({"findings": []}).review(_event(), _diff(text), ReviewerConfig())
+    assert report.incomplete_reason is None
+
+
+def _scripted(replies: list[Any], seen: list | None = None) -> LLMReviewEngine:
+    queue = list(replies)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(json.loads(request.content))
+        reply = queue.pop(0) if queue else {"findings": []}
+        if isinstance(reply, int):
+            return httpx.Response(reply, json={})
+        content = reply if isinstance(reply, str) else json.dumps(reply)
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    return LLMReviewEngine(url="https://llm.test/v1", model="m", api_key="k",
+                           transport=httpx.MockTransport(handler))
+
+
+GOOD = {"title": "Allow the form to shrink", "body": "Clips on phones.", "priority": "P2",
+        "confidence": 0.9, "file": "web/Hub.jsx", "line": 11}
+
+
+def test_a_cut_off_reply_is_retried_once() -> None:
+    seen: list = []
+    report = _scripted(['```json\n{"findings": [{"title": "Allow', {"findings": [GOOD]}], seen).review(
+        _event(), _diff(), ReviewerConfig())
+    assert len(seen) == 2 and "compact JSON" in seen[1]["messages"][1]["content"]
+    assert [f.start_line for f in report.findings] == [11] and report.incomplete_reason is None
+
+
+def test_complete_findings_are_salvaged_from_a_cut_off_retry() -> None:
+    cut = '{"findings": [' + json.dumps(GOOD) + ', {"title": "Second", "bo'
+    report = _scripted([cut, cut]).review(_event(), _diff(), ReviewerConfig())
+    assert [f.start_line for f in report.findings] == [11]
+    assert report.incomplete_reason and "kept 1 complete finding" in report.incomplete_reason
+
+
+def test_one_bad_part_does_not_discard_the_others(monkeypatch) -> None:
+    from selfrepair.reviewer.engines import llm_engine
+
+    monkeypatch.setattr(llm_engine, "_CHUNK_CHARS", 300)
+    monkeypatch.setattr(llm_engine, "_PARALLEL", 1)
+    two_files = FORM_DIFF + FORM_DIFF.replace("web/Hub.jsx", "web/Other.jsx")
+    report = _scripted(["nope", "still nope", {"findings": [dict(GOOD, file="web/Other.jsx")]}]).review(
+        _event(), _diff(two_files), ReviewerConfig())
+    assert [f.file_path for f in report.findings] == ["web/Other.jsx"]
+    assert report.incomplete_reason and report.incomplete_reason.startswith("1 of 2 parts")
+
+
+def test_a_refused_key_stops_the_whole_review() -> None:
+    with pytest.raises(EngineUnavailable, match="refused"):
+        _scripted([401]).review(_event(), _diff(), ReviewerConfig())
+
+
+def test_duplicate_findings_on_one_line_keep_the_most_severe() -> None:
+    from selfrepair.reviewer.engines.llm_engine import dedupe_findings
+
+    low = _finding("low", "a")
+    high = _finding("high", "b")
+    assert [f.severity for f in dedupe_findings([low, high])] == ["high"]
+
+
+def test_inline_comments_are_capped_by_priority() -> None:
+    findings = [_finding("medium", f"m{i}", line=11) for i in range(3)] + [_finding("critical", "c", line=12)]
+    payloads = build_payloads(event=_event(), run=_run(), findings=findings, conclusion="failure", summary="s",
+                              already_published=set(), options=PublishOptions(max_inline_comments=2))
+    review = next(p for p in payloads if p["kind"] == "review")["body"]
+    assert [c["line"] for c in review["comments"]] == [12, 11]
+    assert "outside the inline threshold" in review["body"]
+
+
+def test_security_code_is_reviewed_first() -> None:
+    from selfrepair.reviewer.engines.llm_engine import review_priority
+    from selfrepair.reviewer.schemas import DiffFile
+
+    paths = ["README.md", "tests/test_x.py", ".github/workflows/ci.yml", "app/views.py", "app/auth.py"]
+    ordered = sorted((DiffFile(path=p, patch="x") for p in paths), key=review_priority)
+    assert [f.path for f in ordered] == ["app/auth.py", "app/views.py", ".github/workflows/ci.yml",
+                                         "tests/test_x.py", "README.md"]

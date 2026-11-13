@@ -49,6 +49,7 @@ class PublishOptions(BaseModel):
     style: Literal["codex", "classic"] = "codex"
     inline_comments: bool = True
     min_inline_priority: Priority = "P2"
+    max_inline_comments: int = 10
 
 
 def priority(severity: str) -> Priority:

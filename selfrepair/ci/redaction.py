@@ -129,3 +129,52 @@ def _shannon_entropy(s: str) -> float:
 def _token(kind: str, raw: str) -> str:
     digest = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()[:6]
     return f"<<REDACTED:{kind}:{digest}>>"
+
+
+# ── source code ──────────────────────────────────────────────────────────────
+# `redact` is tuned for CI logs, where `token: abc…` is a leaked value. In source
+# code the same words name variables (`secret = os.environ.get(...)`), and
+# hiding them makes the code unreadable to a reviewer. `redact_code` keeps every
+# known-secret pattern, hides only *quoted literal* values assigned to
+# secret-like names (keeping the name), and runs the entropy check only inside
+# string literals.
+_CODE_KV = re.compile(
+    r"(?i)((?:password|passwd|secret|token|api[_-]?key|access[_-]?key)\w*[\"']?\s*[:=]\s*)"
+    r"([\"'])([^\"'\s]{8,})\2"
+)
+_STRING_LITERAL = re.compile(r"([\"'])([^\"'\n]{24,})\1")
+
+
+def redact_code(text: str) -> RedactionResult:
+    """Redact secrets in source code without hiding the code around them."""
+    if not text:
+        return RedactionResult(text=text, secrets_found=0, classes_seen=())
+    counter: Counter[str] = Counter()
+    out = text
+    for kind, pattern in _PATTERNS:
+        if kind == "kv_secret":
+            continue
+
+        def _sub(match: re.Match[str], _kind: str = kind) -> str:
+            counter[_kind] += 1
+            return _token(_kind, match.group(0))
+
+        out = pattern.sub(_sub, out)
+
+    def _kv(match: re.Match[str]) -> str:
+        if match.group(3).startswith("<<REDACTED:"):
+            return match.group(0)
+        counter["kv_secret"] += 1
+        quote = match.group(2)
+        return f"{match.group(1)}{quote}{_token('kv_secret', match.group(3))}{quote}"
+
+    out = _CODE_KV.sub(_kv, out)
+
+    def _literal(match: re.Match[str]) -> str:
+        inner = _TOKEN_RE.sub(lambda m: _maybe_redact_high_entropy(m.group(0), counter), match.group(2))
+        return f"{match.group(1)}{inner}{match.group(1)}"
+
+    out = _STRING_LITERAL.sub(_literal, out)
+    return RedactionResult(
+        text=out, secrets_found=sum(counter.values()), classes_seen=tuple(sorted(counter))
+    )
