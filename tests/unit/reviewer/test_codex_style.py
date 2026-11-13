@@ -525,8 +525,10 @@ def test_annotations_are_plain_text_and_also_noted_comes_before_the_commit() -> 
     payloads = build_payloads(event=_event(), run=_run(), findings=findings, conclusion="success",
                               summary="s", already_published=set(), options=PublishOptions())
     check = next(p for p in payloads if p["kind"] == "check")["body"]
-    message = check["output"]["annotations"][0]["message"]
-    assert message.startswith("P2 · Allow the configuration form") and "<!--" not in message and "**" not in message
+    annotation = check["output"]["annotations"][0]
+    assert annotation["title"].startswith("P2 · Allow the configuration form")
+    message = annotation["message"]
+    assert message.startswith("On short viewports") and "<!--" not in message and "**" not in message
     body = next(p for p in payloads if p["kind"] == "review")["body"]["body"]
     assert body.index("Also noted") < body.index("Reviewed commit") < body.index("About SelfRepair")
 

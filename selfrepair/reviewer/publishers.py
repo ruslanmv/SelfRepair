@@ -307,7 +307,7 @@ def github_check_body(
                 "end_line": finding.end_line or finding.start_line,
                 "annotation_level": _annotation_level(finding.severity),
                 "message": presentation.annotation_text(finding)[:60000],
-                "title": finding.title[:255],
+                "title": presentation.annotation_title(finding),
             }
         )
     title = _title(conclusion, len(findings))

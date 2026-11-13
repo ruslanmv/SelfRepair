@@ -83,9 +83,14 @@ def inline_comment(finding: FindingRecord) -> str:
     return "\n".join(parts)
 
 
+def annotation_title(finding: FindingRecord) -> str:
+    return f"{priority(finding.severity)} · {' '.join(finding.title.split())}"[:255]
+
+
 def annotation_text(finding: FindingRecord) -> str:
-    """Check-run annotations are plain text: no Markdown, no hidden markers."""
-    parts = [f"{priority(finding.severity)} · {' '.join(finding.title.split())}", "", finding.description.strip()]
+    """Check-run annotations are plain text: no Markdown, no hidden markers.
+    The title (with its priority) is a separate field, so it is not repeated."""
+    parts = [finding.description.strip()]
     if finding.suggested_fix:
         parts += ["", f"Suggested fix: {finding.suggested_fix.strip()}"]
     return "\n".join(parts)

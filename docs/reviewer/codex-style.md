@@ -15,7 +15,15 @@ by default). GitPilot writes fixes, and only when a maintainer asks.
 | Review could not finish (model unavailable, diff unreadable, parts unreviewed) | "⚠️ Couldn't finish reviewing this commit" with the reason. Never the clean-commit message, never 👍, and the check is not a pass. |
 | Re-review, nothing new | Only the check and status comment change; suggestions already posted are not repeated. |
 
-![Status comment on a real pull request](assets/status-comment.png)
+Screenshots from a real pull request,
+[ruslanmv/selfrepair-review-test#1](https://github.com/ruslanmv/selfrepair-review-test/pull/1),
+reviewed by the Hugging Face Space edition with OllaBridge `free-best`:
+
+![Status comment: one row per review, newest first](assets/status-comment.png)
+
+![Inline suggestion with P0 badge, explanation, suggested fix and feedback prompt](assets/inline-suggestion.png)
+
+![SelfRepair / Review check run with plain-text annotations](assets/check-run.png)
 
 Status comment (one per pull request, edited in place, last five rows, collapsed;
 `<relative-time>` renders as "2 minutes ago" on GitHub):
