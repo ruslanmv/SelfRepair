@@ -19,9 +19,9 @@ from selfrepair.persistence.models import AuditLog
 
 def create_body(w, attempt="rep-1", **over):
     ev = w.evidence()
-    body = {"source": "langreplay", "attempt_id": attempt, "case_id": "php-version-wrong-platform", "evidence_id": ev["evidence_id"],
+    body = {"source": "langreplay", "attempt_id": attempt, "case_id": "ebook-return-wrong-format", "evidence_id": ev["evidence_id"],
             "evidence": ev, "repository": {"url": w.repo.url, "base_commit": w.repo.base, "ref": "main"}, "mode": "plan",
-            "requested_by": "maria"}
+            "requested_by": "jordan"}
     body.update(over)
     return body
 
@@ -34,7 +34,7 @@ async def planned(w):
 
 
 async def implemented(w, job, scope=("agent.py",)):
-    res = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "maria", "what": "plan", "scope": list(scope), "plan_sha256": "sha256:p"})
+    res = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "jordan", "what": "plan", "scope": list(scope), "plan_sha256": "sha256:p"})
     assert res.status_code == 200, res.text
     return await run_step(w.sessionmaker, uuid.UUID(job), "implement", w.gitpilot.deps())
 
@@ -54,7 +54,7 @@ async def test_it_fails_closed_without_configuration_and_refuses_bad_credentials
     stale = await w.signed.post("/v1/agent-repairs", create_body(w, "rep-2"), ts=int(time.time()) - 3600)
     assert stale.status_code == 401 and "too old" in stale.json()["detail"]
     body = json.dumps(create_body(w, "rep-2")).encode()
-    tampered = await w.client.post("/v1/agent-repairs", content=body.replace(b"maria", b"mallory"), headers=w.signed.headers(body))
+    tampered = await w.client.post("/v1/agent-repairs", content=body.replace(b"jordan", b"mallory"), headers=w.signed.headers(body))
     assert tampered.status_code == 401 and "signature" in tampered.json()["detail"]
     monkeypatch.delenv("SELFREPAIR_AGENT_REPAIR_REPOS")
     off = await w.signed.post("/v1/agent-repairs", create_body(w, "rep-3"))
@@ -79,7 +79,7 @@ async def test_intake_checks_the_repository_and_the_evidence_and_is_idempotent(w
     assert await audit_actions(w) == ["agent_repair.create"]
     async with w.sessionmaker() as s:
         row = (await s.execute(select(AgentRepair))).scalar_one()
-        assert row.org_id == w.org and row.base_commit == w.repo.base and row.requested_by == "maria"
+        assert row.org_id == w.org and row.base_commit == w.repo.base and row.requested_by == "jordan"
 
 
 async def test_the_plan_is_read_only_and_a_demo_coder_is_refused(world):
@@ -103,14 +103,14 @@ async def test_approval_is_enforced_and_may_only_narrow_the_plan(world):
     job = await planned(w)
     early = await w.signed.post(f"/v1/agent-repairs/{job}/draft-pr", {"title": "x", "body": "y", "draft": True, "patch_sha256": "x", "verification_run": "r"})
     assert early.status_code == 409
-    wider = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "maria", "what": "plan", "scope": ["agent.py", "deploy.sh"]})
+    wider = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "jordan", "what": "plan", "scope": ["agent.py", "deploy.sh"]})
     assert wider.status_code == 422 and "deploy.sh" in wider.text
     w.gitpilot.plan_files.append({"path": ".env", "action": "MODIFY"})
     job2 = (await w.signed.post("/v1/agent-repairs", create_body(w, "rep-env"))).json()["job_id"]
     await run_step(w.sessionmaker, uuid.UUID(job2), "plan", w.gitpilot.deps())
-    forbidden = await w.signed.post(f"/v1/agent-repairs/{job2}/approve", {"approved_by": "maria", "what": "plan", "scope": [".env"]})
+    forbidden = await w.signed.post(f"/v1/agent-repairs/{job2}/approve", {"approved_by": "jordan", "what": "plan", "scope": [".env"]})
     assert forbidden.status_code == 422 and "forbidden" in forbidden.text
-    ok = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "maria", "what": "plan", "scope": ["agent.py"]})
+    ok = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "jordan", "what": "plan", "scope": ["agent.py"]})
     assert ok.json()["state"] == "implementing" and ("agent_repair_step", job, "implement") in w.queue.jobs
     assert "agent_repair.approve" in await audit_actions(w)
 
@@ -173,7 +173,7 @@ async def test_every_way_an_implementation_can_go_wrong_is_reported(world, probl
 async def test_cancellation_wins_over_a_late_result(world):
     w = world
     job = await planned(w)
-    await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "maria", "what": "plan", "scope": ["agent.py"]})
+    await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "jordan", "what": "plan", "scope": ["agent.py"]})
     assert (await w.signed.post(f"/v1/agent-repairs/{job}/cancel", {"reason": "not now"})).json()["state"] == "cancelled"
     assert await run_step(w.sessionmaker, uuid.UUID(job), "implement", w.gitpilot.deps()) == "skipped"
     s = (await w.signed.get(f"/v1/agent-repairs/{job}")).json()
@@ -186,12 +186,12 @@ async def test_retries_are_approved_and_bounded(world, monkeypatch):
     monkeypatch.setenv("SELFREPAIR_AGENT_REPAIR_MAX_RETRIES", "1")
     job = await planned(w)
     await implemented(w, job)
-    wrong = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "omar", "what": "retry", "scope": ["agent.py"], "retry": 5})
+    wrong = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "kim", "what": "retry", "scope": ["agent.py"], "retry": 5})
     assert wrong.status_code == 409
-    ok = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "omar", "what": "retry", "scope": ["agent.py"], "retry": 1})
+    ok = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "kim", "what": "retry", "scope": ["agent.py"], "retry": 1})
     assert ok.json()["state"] == "implementing"
     assert await run_step(w.sessionmaker, uuid.UUID(job), "implement", w.gitpilot.deps()) == "patch_ready"
-    over = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "omar", "what": "retry", "scope": ["agent.py"], "retry": 2})
+    over = await w.signed.post(f"/v1/agent-repairs/{job}/approve", {"approved_by": "kim", "what": "retry", "scope": ["agent.py"], "retry": 2})
     assert over.status_code == 409 and "at most 1" in over.text
     tasks = [c[1]["task_id"] for c in w.gitpilot.calls if c[0] == "repair"]
     assert tasks == ["lr-rep-1-0", "lr-rep-1-1"]
@@ -218,7 +218,7 @@ async def test_a_draft_pr_pushes_only_the_candidate_branch_and_is_a_draft(world,
     not_draft = await w.signed.post(f"/v1/agent-repairs/{job}/draft-pr", {"title": "t", "body": "b", "draft": False, "patch_sha256": s["patch_sha256"], "verification_run": "r1"})
     assert not_draft.status_code == 422
     res = await w.signed.post(f"/v1/agent-repairs/{job}/draft-pr", {"title": "[LangReplay] fix", "body": "Verified by LangReplay.", "draft": True,
-                                                                     "patch_sha256": s["patch_sha256"], "verification_run": "20261113-1", "requested_by": "maria"})
+                                                                     "patch_sha256": s["patch_sha256"], "verification_run": "20261113-1", "requested_by": "jordan"})
     assert res.status_code == 200 and res.json() == {"url": "https://github.com/acme/agent/pull/12", "number": 12, "draft": True}
     assert opened[0]["head"] == "langreplay/rep-1" and opened[0]["base"] == "main"
     heads = w.git(w.repo.bare, "for-each-ref", "--format=%(refname)", "refs/heads")
