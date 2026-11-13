@@ -55,6 +55,10 @@ when the Space restarts. Production uses the full SelfRepair server
      `https://ruslanmv-ollabridge.hf.space/v1` (OllaBridge Cloud).
    - `SELFREPAIR_REVIEW_MODEL` — the model id.
    - `SELFREPAIR_REVIEW_LLM_KEY` (secret) — the endpoint's key.
+   - `SELFREPAIR_REVIEW_FALLBACK_MODEL` (optional) — a model used only for parts
+     the main model could not answer, e.g. `grok-best` behind `free-best`.
+   - `SELFREPAIR_REVIEW_MAX_SECONDS` (optional, default 1200) — time budget for
+     one review.
 5. **Fixes** (optional): `SELFREPAIR_REMEDIATION=true`, `GITPILOT_URL`, and the
    secret `GITPILOT_TOKEN`.
 

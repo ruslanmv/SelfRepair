@@ -96,9 +96,11 @@ Reviewing [ruslanmv/SelfRepair#14](https://github.com/ruslanmv/SelfRepair/pull/1
 | 1. Skip generated files | Lockfiles, `dist/`, `node_modules/`, `*.min.js`, source maps and hashed bundler output (`assets/index-Dx2aEjyp.js`) are left out and listed in the check summary. | In #14 they were 3 of the 3.4 million characters and pushed 55 real files out of the budget. |
 | 2. Order by risk | Security-sensitive code first (auth, secrets, tokens, SQL, migrations, webhooks, sandbox), then other code, CI/config, tests, docs. | If the budget runs out, what is left unread is the least risky. |
 | 3. Split into parts | About 24k characters per model call. A file larger than that is split at hunk boundaries, never cut. A single line over the limit is shortened and marks the review incomplete. | Free routers keep a prompt this size on fast providers. Larger prompts fell back to a model whose hidden reasoning used up the output budget and cut the JSON off. |
-| 4. Review in parallel | Three parts at a time, at most 32 parts, inside `execution.max_runtime_seconds`. | #14 (26 parts) finishes in about six minutes. |
-| 5. Recover per part | A part whose reply is cut off or not JSON is asked again once ("compact JSON, at most 5 findings"); complete findings are salvaged from a cut-off reply; other parts are kept. Only a refused key stops the whole review. | One bad answer no longer throws away the rest. |
-| 6. Merge and rank | Duplicate findings on one line are merged (most severe wins). The 10 most important go inline (`review.max_inline_comments`); the rest are listed in the review. | Fewer, better comments get read. |
+| 4. Review in parallel | Two parts at a time, at most 32 parts, inside `execution.max_runtime_seconds` (20 minutes in the Space edition). | Free providers rate-limit bursts. |
+| 5. Wait out rate limits | `429`/`503` ("all providers exhausted") and timeouts are retried after 15, 45 and 90 seconds, honouring `Retry-After`. | A shared free router recovers within a minute or two. |
+| 6. Recover per part | A cut-off JSON reply is asked again at once ("compact JSON, at most 5 findings"); a prose reply (a small fallback model) after a pause. Complete findings are salvaged from a cut-off reply; other parts are kept. Only a refused key stops the whole review. | One bad answer no longer throws away the rest. |
+| 7. Optional fallback model | `SELFREPAIR_REVIEW_FALLBACK_MODEL` (off by default) answers only the parts the main model could not, e.g. `grok-best` behind `free-best`. | Free first; pay only for what free could not do. |
+| 8. Merge and rank | Duplicate findings on one line are merged (most severe wins). The 10 most important go inline (`review.max_inline_comments`); the rest are listed in the review. | Fewer, better comments get read. |
 
 Anything not reviewed is named: "2 of 26 parts could not be fully reviewed (…)",
 "diff too large", "lines too long to review in …". Such a review is never a pass.
