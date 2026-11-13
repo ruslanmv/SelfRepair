@@ -529,3 +529,24 @@ def test_annotations_are_plain_text_and_also_noted_comes_before_the_commit() -> 
     assert message.startswith("P2 · Allow the configuration form") and "<!--" not in message and "**" not in message
     body = next(p for p in payloads if p["kind"] == "review")["body"]["body"]
     assert body.index("Also noted") < body.index("Reviewed commit") < body.index("About SelfRepair")
+
+
+async def test_lines_the_bot_already_commented_on_are_not_repeated() -> None:
+    old = [{"id": 1, "path": "web/Hub.jsx", "line": 11, "user": {"type": "Bot"},
+            "body": "**P2** Allow the form…\n<!-- sr-finding:other-wording -->"}]
+    transport = FakeTransport(old)
+    findings = [_finding("medium", "new1", line=11), _finding("high", "new2", line=12)]
+    await GitHubHttpPublisher(transport, token="t").publish(
+        event=_event(), run=_run(), findings=findings, conclusion="success", summary="s",
+        already_published=set(), options=PublishOptions())
+    review = next(b for m, u, b in transport.calls if m == "POST" and u.endswith("/pulls/7/reviews"))
+    assert [c["line"] for c in review["comments"]] == [12]
+
+
+async def test_a_review_with_nothing_new_is_not_posted() -> None:
+    old = [{"id": 1, "path": "web/Hub.jsx", "line": 11, "user": {"type": "Bot"}, "body": "<!-- sr-finding:x -->"}]
+    transport = FakeTransport(old)
+    await GitHubHttpPublisher(transport, token="t").publish(
+        event=_event(), run=_run(), findings=[_finding("medium", "y", line=11)], conclusion="success",
+        summary="s", already_published=set(), options=PublishOptions())
+    assert not any(m == "POST" and u.endswith("/reviews") for m, u, b in transport.calls)
