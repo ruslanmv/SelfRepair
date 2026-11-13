@@ -6,8 +6,11 @@ Repeated fingerprints on the same pull request are not posted again.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol
 
+from selfrepair.reviewer import presentation
+from selfrepair.reviewer.presentation import PublishOptions
 from selfrepair.reviewer.schemas import (
     CHECK_NAME,
     Conclusion,
@@ -18,6 +21,7 @@ from selfrepair.reviewer.schemas import (
 )
 
 _ANNOTATION_LIMIT = 50
+logger = logging.getLogger(__name__)
 
 
 class Publisher(Protocol):
@@ -32,6 +36,7 @@ class Publisher(Protocol):
         conclusion: Conclusion,
         summary: str,
         already_published: set[str],
+        options: PublishOptions | None = None,
     ) -> list[dict[str, Any]]: ...
 
 
@@ -75,6 +80,7 @@ class RecordingPublisher:
         conclusion: Conclusion,
         summary: str,
         already_published: set[str],
+        options: PublishOptions | None = None,
     ) -> list[dict[str, Any]]:
         payloads = build_payloads(
             event=event,
@@ -83,13 +89,16 @@ class RecordingPublisher:
             conclusion=conclusion,
             summary=summary,
             already_published=already_published,
+            options=options,
         )
         for item in payloads:
             item["status"] = "recorded"
         self.sent.extend(payloads)
         return payloads
 
-    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+    async def announce(
+        self, *, event: ReviewEvent, run: RunRecord, options: PublishOptions | None = None
+    ) -> None:
         """Record the in-progress check. Tests can see it; GitHub is not called."""
         del event
         self.sent.append(
@@ -101,7 +110,10 @@ class RecordingPublisher:
             }
         )
 
-    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+    async def abandon(
+        self, *, event: ReviewEvent, run: RunRecord, reason: str,
+        options: PublishOptions | None = None,
+    ) -> None:
         """Record the terminal check a failed review would send."""
         del event
         self.sent.append(
@@ -126,10 +138,15 @@ class UnpublishedPublisher:
     def __init__(self, reason: str) -> None:
         self._reason = reason
 
-    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+    async def announce(
+        self, *, event: ReviewEvent, run: RunRecord, options: PublishOptions | None = None
+    ) -> None:
         del event, run
 
-    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+    async def abandon(
+        self, *, event: ReviewEvent, run: RunRecord, reason: str,
+        options: PublishOptions | None = None,
+    ) -> None:
         del event, run, reason
 
     async def publish(
@@ -141,6 +158,7 @@ class UnpublishedPublisher:
         conclusion: Conclusion,
         summary: str,
         already_published: set[str],
+        options: PublishOptions | None = None,
     ) -> list[dict[str, Any]]:
         payloads = build_payloads(
             event=event,
@@ -149,6 +167,7 @@ class UnpublishedPublisher:
             conclusion=conclusion,
             summary=summary,
             already_published=already_published,
+            options=options,
         )
         for item in payloads:
             item["status"] = "unpublished"
@@ -164,9 +183,12 @@ def build_payloads(
     conclusion: Conclusion,
     summary: str,
     already_published: set[str],
+    options: PublishOptions | None = None,
 ) -> list[dict[str, Any]]:
     """Return the provider payloads for this run. Does not perform I/O."""
     fresh = [item for item in findings if item.fingerprint not in already_published]
+    if options is not None and options.style == "codex":
+        return _codex_payloads(event, run, findings, fresh, conclusion, summary, options)
     if event.provider == "gitlab":
         return [
             {
@@ -196,6 +218,69 @@ def build_payloads(
             }
         )
     return payloads
+
+
+def _codex_payloads(
+    event: ReviewEvent,
+    run: RunRecord,
+    findings: list[FindingRecord],
+    fresh: list[FindingRecord],
+    conclusion: Conclusion,
+    summary: str,
+    options: PublishOptions,
+) -> list[dict[str, Any]]:
+    """Codex-style publication: the check (or status) plus one review per new commit.
+
+    The review is skipped when every finding was already posted on this pull
+    request, so a re-review does not repeat itself. A clean commit gets a short
+    "no major issues" review so the author knows the review ran.
+    """
+    inline = [
+        item for item in fresh
+        if item.side == "RIGHT" and item.file_path and item.start_line is not None
+        and presentation.inline_allowed(item, options)
+    ]
+    listed = [item for item in fresh if item not in inline]
+    wants_review = bool(fresh) or not findings
+    if event.provider == "gitlab":
+        out: list[dict[str, Any]] = [
+            {"kind": "status", "body": gitlab_status_body(run, conclusion, summary), "fingerprints": []}
+        ]
+        if wants_review and event.pr_number is not None:
+            parts = [presentation.review_body(run.head_sha, fresh, posted_inline=0)]
+            parts += [presentation.inline_comment(item) for item in fresh]
+            out.append({
+                "kind": "discussion",
+                "body": {"body": "\n\n---\n\n".join(parts)},
+                "fingerprints": [item.fingerprint for item in fresh],
+            })
+        return out
+    out = [{
+        "kind": "check",
+        "body": github_check_body(run, findings, conclusion, summary),
+        "fingerprints": [item.fingerprint for item in findings],
+    }]
+    if event.kind == "pull_request" and event.pr_number is not None and wants_review:
+        body = presentation.review_body(run.head_sha, listed if not inline else fresh, posted_inline=len(inline))
+        if inline and listed:
+            body += "\n\nAlso noted, outside the inline threshold:\n" + "\n".join(
+                f"- **{presentation.priority(item.severity)}** {item.title}" for item in listed
+            )
+        out.append({
+            "kind": "review",
+            "body": {
+                "commit_id": run.head_sha,
+                "event": "COMMENT",
+                "body": body[:65000],
+                "comments": [
+                    {"path": item.file_path, "line": item.start_line, "side": "RIGHT",
+                     "body": presentation.inline_comment(item)}
+                    for item in inline
+                ],
+            },
+            "fingerprints": [item.fingerprint for item in fresh],
+        })
+    return out
 
 
 def github_check_body(
@@ -340,6 +425,7 @@ class GitHubHttpPublisher:
         conclusion: Conclusion,
         summary: str,
         already_published: set[str],
+        options: PublishOptions | None = None,
     ) -> list[dict[str, Any]]:
         payloads = build_payloads(
             event=event,
@@ -348,6 +434,7 @@ class GitHubHttpPublisher:
             conclusion=conclusion,
             summary=summary,
             already_published=already_published,
+            options=options,
         )
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -385,10 +472,20 @@ class GitHubHttpPublisher:
                 body = response.json() if hasattr(response, "json") else {}
                 item["external_id"] = str(body.get("id") or "")
             results.append(item)
+        if _codex(options, event):
+            state = "completed" if conclusion in {"success", "failure"} else "incomplete"
+            await self._status_comment(event, run.head_sha, state)
+            if not findings:
+                await self._react(event, "+1")
         return results
 
-    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+    async def announce(
+        self, *, event: ReviewEvent, run: RunRecord, options: PublishOptions | None = None
+    ) -> None:
         """Post an in-progress check so branch protection does not see a missing check."""
+        if _codex(options, event):
+            await self._react(event, "eyes")
+            await self._status_comment(event, run.head_sha, "in_progress")
         url = f"{self._api}/repos/{event.repo_full_name}/check-runs"
         body = {
             "name": CHECK_NAME,
@@ -406,13 +503,18 @@ class GitHubHttpPublisher:
             if check_id:
                 self._announced[str(run.id)] = check_id
 
-    async def abandon(self, *, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+    async def abandon(
+        self, *, event: ReviewEvent, run: RunRecord, reason: str,
+        options: PublishOptions | None = None,
+    ) -> None:
         """Give the announced check a terminal result when the review failed.
 
         Without this a crash or a transient error after `announce` leaves the
         check `in_progress` forever, and each retry adds another one. Best
         effort: a failure here must not hide the original error.
         """
+        if _codex(options, event):
+            await self._status_comment(event, run.head_sha, "failed")
         check_id = self._announced.pop(str(run.id), None)
         if check_id is None:
             return
@@ -446,6 +548,56 @@ class GitHubHttpPublisher:
             )
         return await patch(url, json=update, headers=headers)
 
+    async def _status_comment(self, event: ReviewEvent, head_sha: str, state: str) -> None:
+        """Create or edit the one status comment on the pull request. Best effort.
+
+        Only a comment written by a bot account and carrying our marker is
+        edited, so a person quoting the marker cannot redirect the update.
+        """
+        if event.pr_number is None:
+            return
+        get = getattr(self._transport, "get", None)
+        patch = getattr(self._transport, "patch", None)
+        base = f"{self._api}/repos/{event.repo_full_name}/issues/{event.pr_number}/comments"
+        headers = _headers_for(self._token)
+        row = presentation.summary_row(status=state, head_sha=head_sha, trigger=event.trigger)
+        try:
+            existing = None
+            if get is not None:
+                response = await get(f"{base}?per_page=100", headers)
+                listing = response.json() if getattr(response, "status_code", 0) < 400 else []
+                for comment in listing if isinstance(listing, list) else []:
+                    user = comment.get("user") or {}
+                    if user.get("type") == "Bot" and presentation.SUMMARY_MARKER in (comment.get("body") or ""):
+                        existing = comment
+                        break
+            if existing is not None and patch is not None:
+                rows = presentation.merge_row(presentation.rows_from_comment(existing["body"]), row)
+                url = f"{self._api}/repos/{event.repo_full_name}/issues/comments/{existing['id']}"
+                await patch(url, json={"body": presentation.summary_comment(rows)}, headers=headers)
+            else:
+                await self._transport.post(
+                    base, json={"body": presentation.summary_comment([row])}, headers=headers
+                )
+        except TransientReviewError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the status comment is a courtesy
+            logger.info("review status comment not updated: %s", type(exc).__name__)
+
+    async def _react(self, event: ReviewEvent, content: str) -> None:
+        """React on the comment that asked for the review, else on the pull request."""
+        if event.pr_number is None:
+            return
+        repo = event.repo_full_name
+        if event.trigger_comment_id:
+            url = f"{self._api}/repos/{repo}/issues/comments/{event.trigger_comment_id}/reactions"
+        else:
+            url = f"{self._api}/repos/{repo}/issues/{event.pr_number}/reactions"
+        try:
+            await self._transport.post(url, json={"content": content}, headers=_headers_for(self._token))
+        except Exception as exc:  # noqa: BLE001 - a reaction is a courtesy
+            logger.info("review reaction not added: %s", type(exc).__name__)
+
     @staticmethod
     def _record(item: dict[str, Any], response: Any, *, fallback_id: str) -> dict[str, Any]:
         status = getattr(response, "status_code", 0)
@@ -477,6 +629,7 @@ class GitLabHttpPublisher:
         conclusion: Conclusion,
         summary: str,
         already_published: set[str],
+        options: PublishOptions | None = None,
     ) -> list[dict[str, Any]]:
         if event.project_id is None:
             return [
@@ -495,6 +648,7 @@ class GitLabHttpPublisher:
             conclusion=conclusion,
             summary=summary,
             already_published=already_published,
+            options=options,
         )
         headers = {"PRIVATE-TOKEN": self._token}
         results: list[dict[str, Any]] = []
@@ -520,7 +674,9 @@ class GitLabHttpPublisher:
             results.append(item)
         return results
 
-    async def announce(self, *, event: ReviewEvent, run: RunRecord) -> None:
+    async def announce(
+        self, *, event: ReviewEvent, run: RunRecord, options: PublishOptions | None = None
+    ) -> None:
         """Post a pending commit status before analysis finishes."""
         if event.project_id is None:
             return
@@ -535,6 +691,10 @@ class GitLabHttpPublisher:
             url, json=body, headers={"PRIVATE-TOKEN": self._token}
         )
         _raise_if_rate_limited(response)
+
+
+def _codex(options: PublishOptions | None, event: ReviewEvent) -> bool:
+    return options is not None and options.style == "codex" and event.kind == "pull_request"
 
 
 def _response_id(response: Any) -> str:

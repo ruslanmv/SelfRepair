@@ -10,6 +10,13 @@ from selfrepair.reviewer.schemas import ZERO_SHA, CommitInfo, ReviewEvent
 _PR_ACTIONS = frozenset(
     {"opened", "reopened", "synchronize", "ready_for_review", "edited"}
 )
+_PR_TRIGGERS = {
+    "opened": "PR opened",
+    "reopened": "PR reopened",
+    "synchronize": "New commits",
+    "ready_for_review": "Ready for review",
+    "edited": "PR edited",
+}
 _BOT_LOGINS = frozenset({"selfrepair", "selfrepair[bot]"})
 
 
@@ -36,6 +43,7 @@ def event_from_run(run: Any, repo: Any) -> ReviewEvent:
         provider=provider,
         kind=kind,
         action="retry",
+        trigger="Retry",
         delivery_id=run.delivery_id or f"retry-{run.id}",
         repo_full_name=repo.full_name,
         installation_id=int(installation) if isinstance(installation, int) else None,
@@ -216,6 +224,7 @@ def _github_pull(
             default_branch=str(repo.get("default_branch") or "main"),
             title=pr.get("title"),
             draft=bool(pr.get("draft")),
+            trigger=_PR_TRIGGERS.get(action, action),
         )
     except ValidationError as exc:
         raise EventRejected("malformed") from exc

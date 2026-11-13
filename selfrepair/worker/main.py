@@ -148,6 +148,15 @@ async def ingest_webhook(
             payload=payload,
         )
 
+    if event_type == "issue_comment":
+        # `@selfrepair review` / `@selfrepair fix` on a pull request. Anything
+        # else (and any comment the reviewer does not own) goes to Issue Watch.
+        from selfrepair.reviewer.commands import handle_github_comment
+
+        handled = await handle_github_comment(ctx, delivery_id, payload)
+        if handled is not None:
+            return handled
+
     if event_type in _ISSUE_EVENTS:
         from selfrepair.issues.dispatcher import dispatch_github_issue_event
 
