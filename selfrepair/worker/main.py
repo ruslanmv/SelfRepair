@@ -244,6 +244,13 @@ from selfrepair.issues.sync import (  # noqa: E402  (kept after handlers for rea
 )
 
 
+async def agent_repair_step(ctx: dict[str, Any], repair_id: str, step: str) -> str:
+    """Run one step (plan | implement) of an agent repair sent by LangReplay. See selfrepair/agent_repair."""
+    from selfrepair.agent_repair.pipeline import run_step
+
+    return await run_step(ctx["sessionmaker"], uuid.UUID(repair_id), step)
+
+
 class WorkerSettings:
     functions = [
         process_job,
@@ -253,6 +260,7 @@ class WorkerSettings:
         remediate_review,
         sync_external_issues,
         scheduled_sync_external_issues,
+        agent_repair_step,
     ]
     on_startup = startup
     on_shutdown = shutdown

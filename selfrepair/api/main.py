@@ -32,6 +32,7 @@ from selfrepair.api.middleware import (
     RequestIdMiddleware,
 )
 from selfrepair.api.routes import (
+    agent_repairs,
     audit,
     auth,
     ci,
@@ -146,6 +147,8 @@ def build_app() -> FastAPI:
     app.include_router(metrics.router)
     app.include_router(ci.router)
     app.include_router(issues.router)
+    # Agent repair: AI-agent issues sent by LangReplay, service-authenticated (selfrepair/agent_repair).
+    app.include_router(agent_repairs.router)
     # v1 stable client contract (JSON-RPC over /v1/rpc + /v1/about)
     app.include_router(v1_rpc_router)
     return app

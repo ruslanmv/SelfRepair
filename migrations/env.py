@@ -14,6 +14,7 @@ from selfrepair.persistence import auth_models  # noqa: F401  -- auth tables
 from selfrepair.persistence import routine_models  # noqa: F401  -- routine tables
 from selfrepair.persistence import review_models  # noqa: F401  -- review tables
 from selfrepair.persistence import connector_models  # noqa: F401  -- service connectors
+from selfrepair.agent_repair import models as agent_repair_models  # noqa: F401  -- agent repairs (0009)
 
 config = context.config
 
