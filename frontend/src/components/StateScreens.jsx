@@ -103,7 +103,6 @@ export class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     // Silent technical logging — never surfaced to the user verbatim.
-    // eslint-disable-next-line no-console
     console.error("[SelfRepair] UI crash", { error, info, requestId: this.state.requestId });
   }
 

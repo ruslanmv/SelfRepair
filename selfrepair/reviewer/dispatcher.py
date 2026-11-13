@@ -112,6 +112,10 @@ async def _dispatch(ctx: dict[str, Any], event: Any) -> str:
         from selfrepair.reviewer.engines.deepagents_engine import DeepAgentsReviewEngine
 
         engine = DeepAgentsReviewEngine()
+    if engine is None and config.engine == "llm":
+        from selfrepair.reviewer.engines.llm_engine import LLMReviewEngine
+
+        engine = LLMReviewEngine()
     if engine is None:
         engine = DeterministicReviewEngine()
     provider, publisher = await _io(ctx, event, repo)

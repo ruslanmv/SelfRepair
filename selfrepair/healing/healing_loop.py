@@ -17,7 +17,9 @@ from selfrepair.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def run_healing_loop(report: RepoHealthReport, repo_dir: Path, settings: Settings) -> RepoHealthReport:
+def run_healing_loop(
+    report: RepoHealthReport, repo_dir: Path, settings: Settings
+) -> RepoHealthReport:
     # Route HuggingFace Spaces through Space-specific healing
     if report.repo.platform == "huggingface" and report.repo.kind == "space":
         return _heal_space(report, repo_dir, settings)
@@ -35,6 +37,7 @@ def _heal_space(report: RepoHealthReport, repo_dir: Path, settings: Settings) ->
     if settings.hf_token:
         try:
             from huggingface_hub import HfApi
+
             hf_api = HfApi(token=settings.hf_token)
             info = hf_api.space_info(report.repo.full_name)
             if info.runtime:
@@ -65,10 +68,13 @@ def _heal_space(report: RepoHealthReport, repo_dir: Path, settings: Settings) ->
             from huggingface_hub import HfApi
 
             from selfrepair.inventory.hf_hardware import request_zerogpu
+
             hf_api = HfApi(token=settings.hf_token)
             namespace = report.repo.namespace or report.repo.full_name.split("/")[0]
             success, hw_report = request_zerogpu(
-                hf_api, report.repo.full_name, namespace,
+                hf_api,
+                report.repo.full_name,
+                namespace,
                 auto_free=settings.hf_auto_free_zerogpu,
                 exclude=settings.hf_zerogpu_exclude_set,
             )
@@ -87,8 +93,26 @@ def _heal_space(report: RepoHealthReport, repo_dir: Path, settings: Settings) ->
     return report
 
 
-def _heal_standard(report: RepoHealthReport, repo_dir: Path, settings: Settings) -> RepoHealthReport:
+def _with_saved_ollabridge(settings: Settings) -> Settings:
+    """Use the saved OllaBridge credential when this organization has one."""
+    from selfrepair.connectors.runtime import resolve_service
+
+    resolved = resolve_service("ollabridge")
+    if resolved.source != "saved":
+        return settings
+    if resolved.token:
+        settings.ollabridge_api_key = resolved.token
+        settings.ollabridge_enabled = True
+    if resolved.base_url:
+        settings.ollabridge_base_url = resolved.base_url
+    return settings
+
+
+def _heal_standard(
+    report: RepoHealthReport, repo_dir: Path, settings: Settings
+) -> RepoHealthReport:
     """Standard healing path for non-Space repositories."""
+    settings = _with_saved_ollabridge(settings)
     gitpilot = GitPilotClient(settings)
     ollabridge = OllaBridgeClient(settings) if settings.ollabridge_enabled else None
 
@@ -118,7 +142,9 @@ def _heal_standard(report: RepoHealthReport, repo_dir: Path, settings: Settings)
                 logger.warning("OllaBridge repair suggestion failed: %s", exc)
 
         if gitpilot.available():
-            gitpilot.run_headless(report.repo.full_name, build_fix_prompt(report, str(repo_dir)), report.branch_name)
+            gitpilot.run_headless(
+                report.repo.full_name, build_fix_prompt(report, str(repo_dir)), report.branch_name
+            )
 
         changed = apply_fixes(report, repo_dir)
         report.changed_files = sorted(set(report.changed_files + changed))

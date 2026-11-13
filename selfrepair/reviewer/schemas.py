@@ -21,7 +21,7 @@ Conclusion = Literal["success", "failure", "action_required", "neutral", "cancel
 RunStatus = Literal[
     "queued", "running", "completed", "incomplete", "skipped", "superseded", "failed"
 ]
-EngineName = Literal["deterministic", "deepagents"]
+EngineName = Literal["deterministic", "deepagents", "llm"]
 
 
 class CommitInfo(BaseModel):
@@ -61,6 +61,11 @@ class ReviewEvent(BaseModel):
     compare_url: str | None = None
     title: str | None = None
     draft: bool = False
+    # What started this review, as shown in the pull-request status comment:
+    # "PR opened", "Ready for review", "New commits", "@user", "Retry".
+    trigger: str | None = None
+    # The comment that asked for the review (`@selfrepair review`), if any.
+    trigger_comment_id: int | None = None
 
 
 class DiffLine(BaseModel):
@@ -110,7 +115,7 @@ class FindingDraft(BaseModel):
     description: str
     evidence: str | None = None
     suggested_fix: str | None = None
-    source: Literal["deterministic", "deepagents"] = "deterministic"
+    source: Literal["deterministic", "deepagents", "llm"] = "deterministic"
 
 
 class FindingRecord(FindingDraft):

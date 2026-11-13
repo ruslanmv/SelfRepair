@@ -117,6 +117,23 @@ class ReviewerTriggers(BaseModel):
     merge_request: bool = True
 
 
+class ReviewerMentions(BaseModel):
+    """`@selfrepair review` / `@selfrepair fix` commands in pull-request comments.
+
+    Only commenters whose association is listed may start a review or a fix, so
+    a drive-by comment on a public repository cannot spend the model budget or
+    ask GitPilot for a branch.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    handles: list[str] = Field(default_factory=lambda: ["selfrepair", "gitpilot"])
+    allowed_associations: list[str] = Field(
+        default_factory=lambda: ["OWNER", "MEMBER", "COLLABORATOR"]
+    )
+
+
 class ReviewerBranches(BaseModel):
     """Branch filter. A push is reviewed when its branch matches `include` and not `exclude`."""
 
@@ -144,6 +161,12 @@ class ReviewerPublish(BaseModel):
 
     inline_comments: bool = True
     publish_summary: bool = True
+    # "codex": one status comment kept up to date on the pull request, a review
+    # titled with the reviewed commit, and P0-P3 inline suggestions that ask for
+    # 👍 / 👎 feedback. "classic": the original severity-prefixed comments.
+    style: Literal["codex", "classic"] = "codex"
+    # Lowest priority that is posted inline. P3 notes still reach the check.
+    min_inline_priority: Literal["P0", "P1", "P2", "P3"] = "P2"
     block_on: list[SeverityLiteral] = Field(default_factory=lambda: ["critical", "high"])
 
 
@@ -183,7 +206,8 @@ class ReviewerConfig(BaseModel):
     enabled: bool = False
     triggers: ReviewerTriggers = Field(default_factory=ReviewerTriggers)
     branches: ReviewerBranches = Field(default_factory=ReviewerBranches)
-    engine: Literal["deterministic", "deepagents"] = "deterministic"
+    engine: Literal["deterministic", "deepagents", "llm"] = "deterministic"
+    mentions: ReviewerMentions = Field(default_factory=ReviewerMentions)
     agents: ReviewerAgents = Field(default_factory=ReviewerAgents)
     review: ReviewerPublish = Field(default_factory=ReviewerPublish)
     execution: ReviewerExecution = Field(default_factory=ReviewerExecution)
