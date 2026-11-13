@@ -82,11 +82,30 @@ def inline_comment(finding: FindingRecord) -> str:
     return "\n".join(parts)
 
 
-def review_body(head_sha: str, findings: list[FindingRecord], *, posted_inline: int) -> str:
-    """The pull-request review that carries the inline comments."""
+def review_body(
+    head_sha: str,
+    findings: list[FindingRecord],
+    *,
+    posted_inline: int,
+    incomplete: str | None = None,
+) -> str:
+    """The pull-request review that carries the inline comments.
+
+    `incomplete` is the reason the review could not finish. Then the body never
+    claims a clean result: it says what was not reviewed.
+    """
     lines = [f"### 💡 {PRODUCT} Review", ""]
+    if incomplete:
+        lines += [
+            "⚠️ **Couldn't finish reviewing this commit**, so this is not a clean result: "
+            "parts of the change may not have been reviewed.",
+            "",
+            f"Reason: {_one_line(incomplete)[:300]}",
+            "",
+        ]
     if not findings:
-        lines += ["Didn't find any major issues. 🚀", ""]
+        if not incomplete:
+            lines += ["Didn't find any major issues. 🚀", ""]
     elif posted_inline:
         lines += ["Here are some automated review suggestions for this pull request.", ""]
     else:
@@ -120,7 +139,7 @@ def _about() -> str:
 # ── status comment ────────────────────────────────────────────────────────────
 
 _STATUS_TEXT = {
-    "in_progress": "🔄 In progress",
+    "in_progress": "🔄 Running",
     "completed": "✅ Completed",
     "incomplete": "⚠️ Incomplete",
     "skipped": "⏭️ Skipped",
@@ -129,7 +148,7 @@ _STATUS_TEXT = {
 
 
 def summary_row(*, status: str, head_sha: str, trigger: str | None, at: datetime | None = None) -> dict[str, str]:
-    stamp = (at or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M UTC")
+    stamp = (at or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "status": status if status in _STATUS_TEXT else "completed",
         "at": stamp,
@@ -139,21 +158,33 @@ def summary_row(*, status: str, head_sha: str, trigger: str | None, at: datetime
 
 
 def summary_comment(rows: list[dict[str, str]]) -> str:
-    """The pull-request status comment. `rows` is newest first."""
+    """The pull-request status comment. `rows` is newest first.
+
+    Same shape as the hosted reviewers' status comment: a collapsed block whose
+    summary line carries the latest status, bold status text, and GitHub's
+    `<relative-time>` element so the time reads "2 minutes ago" / "last week".
+    """
     rows = [_clean_row(r) for r in rows][:_MAX_ROWS]
+    latest = _STATUS_TEXT[rows[0]["status"]] if rows else _STATUS_TEXT["completed"]
     lines = [
-        f"### {PRODUCT} Review Summary",
+        "<details>",
+        f"<summary><strong>{PRODUCT} Review Summary</strong>: {latest}</summary>",
+        "",
         f"This comment shows the latest {PRODUCT} review activity on this pull request.",
         "",
         "| Review | Status | Commit | Review trigger |",
         "| --- | --- | --- | --- |",
     ]
     for row in rows:
+        icon, word = _STATUS_TEXT[row["status"]].split(" ", 1)
+        since = " since" if row["status"] == "in_progress" else ""
+        when = f'<relative-time datetime="{row["at"]}">{row["at"]}</relative-time>' if row["at"] else ""
         lines.append(
-            f"| 📝 Code Review | {_STATUS_TEXT[row['status']]} {row['at']} "
+            f"| 📝 **Code Review** | {icon} **{word}**{since} {when} "
             f"| `{row['commit']}` | {row['trigger']} |"
         )
-    lines += ["", _about(), "", f"{SUMMARY_MARKER} {json.dumps({'rows': rows})} -->"]
+    lines += ["", _about(), "", "</details>", "",
+              f"{SUMMARY_MARKER} {json.dumps({'rows': rows})} -->"]
     return "\n".join(lines)
 
 
@@ -183,7 +214,7 @@ def _clean_row(row: dict[str, Any]) -> dict[str, str]:
     commit = re.sub(r"[^0-9a-f]", "", str(row.get("commit") or "").lower())[:10]
     return {
         "status": status if status in _STATUS_TEXT else "completed",
-        "at": re.sub(r"[^0-9: \-UTC]", "", str(row.get("at") or ""))[:20],
+        "at": re.sub(r"[^0-9:TZ\-]", "", str(row.get("at") or ""))[:20],
         "commit": commit,
         "trigger": _one_line(str(row.get("trigger") or ""))[:80],
     }

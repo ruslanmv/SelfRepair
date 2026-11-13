@@ -95,7 +95,8 @@ def test_clean_review_says_so() -> None:
 def test_summary_comment_round_trips_and_escapes() -> None:
     row = presentation.summary_row(status="completed", head_sha="af3a4d70d7", trigger="@eve | <b>x</b>")
     body = presentation.summary_comment([row])
-    assert "| 📝 Code Review | ✅ Completed" in body
+    assert "<summary><strong>SelfRepair Review Summary</strong>: ✅ Completed</summary>" in body
+    assert "| 📝 **Code Review** | ✅ **Completed** <relative-time datetime=" in body
     assert "`af3a4d7`" in body
     assert "<b>" not in body.split(presentation.SUMMARY_MARKER)[0]
     assert "\\|" in body
@@ -163,7 +164,7 @@ async def test_announce_reacts_and_creates_the_status_comment() -> None:
     urls = [(m, u) for m, u, _ in transport.calls]
     assert ("POST", "https://api.github.com/repos/octo/demo/issues/comments/42/reactions") in urls
     created = [b for m, u, b in transport.calls if m == "POST" and u.endswith("/issues/7/comments")]
-    assert "🔄 In progress" in created[0]["body"]
+    assert "🔄 **Running** since <relative-time" in created[0]["body"]
 
 
 async def test_publish_edits_only_the_bots_status_comment() -> None:
@@ -178,7 +179,9 @@ async def test_publish_edits_only_the_bots_status_comment() -> None:
                       already_published=set(), options=PublishOptions())
     patches = [(u, b) for m, u, b in transport.calls if m == "PATCH"]
     assert patches[0][0].endswith("/issues/comments/2")
-    assert "✅ Completed" in patches[0][1]["body"] and "🔄" not in patches[0][1]["body"].split("<details>")[0]
+    edited = patches[0][1]["body"]
+    assert "<strong>SelfRepair Review Summary</strong>: ✅ Completed" in edited
+    assert "Running" not in edited.split("<details> <summary>ℹ️")[0]
     assert any(u.endswith("/issues/7/reactions") and b == {"content": "+1"} for m, u, b in transport.calls)
 
 
@@ -335,3 +338,75 @@ async def test_fix_command_is_refused_when_remediation_is_off() -> None:
     await handle_github_comment(ctx, "c1", _comment("@selfrepair review"))
     assert await handle_github_comment(ctx, "c2", _comment("@selfrepair fix")) == "refused"
     assert "remediation disabled" in github.comments[-1]
+
+
+# ── regressions for review findings on ruslanmv/SelfRepair#13 ───────────────
+
+def _big_diff(lines: int, width: int = 40) -> str:
+    body = "".join(f"+line {i:05d} " + "x" * width + "\n" for i in range(lines))
+    return f"diff --git a/big.py b/big.py\n--- a/big.py\n+++ b/big.py\n@@ -0,0 +1,{lines} @@\n{body}"
+
+
+def test_oversized_files_are_split_not_truncated(monkeypatch) -> None:
+    from selfrepair.reviewer.engines import llm_engine
+
+    monkeypatch.setattr(llm_engine, "_CHUNK_CHARS", 2_000)
+    seen: list = []
+    report = _llm({"findings": []}, seen=seen).review(_event(), _diff(_big_diff(120)), ReviewerConfig())
+    sent = "".join(m["messages"][1]["content"] for m in seen)
+    assert len(seen) > 1
+    assert all(f"line {i:05d}" in sent for i in range(120))
+    assert report.incomplete_reason is None
+
+
+def test_too_many_parts_or_cut_lines_make_the_review_incomplete(monkeypatch) -> None:
+    from selfrepair.reviewer.engines import llm_engine
+
+    monkeypatch.setattr(llm_engine, "_CHUNK_CHARS", 2_000)
+    report = _llm({"findings": []}).review(_event(), _diff(_big_diff(600)), ReviewerConfig())
+    assert report.incomplete_reason and "diff too large" in report.incomplete_reason
+    report = _llm({"findings": []}).review(_event(), _diff(_big_diff(3, width=5_000)), ReviewerConfig())
+    assert report.incomplete_reason and "too long" in report.incomplete_reason
+
+
+@pytest.mark.parametrize("reply", [{}, {"error": "request refused"}, {"findings": "invalid"}, {"findings": ["x"]}])
+def test_replies_without_a_findings_list_are_not_a_review(reply) -> None:
+    with pytest.raises(EngineUnavailable):
+        _llm(reply).review(_event(), _diff(), ReviewerConfig())
+
+
+def test_incomplete_review_never_claims_a_clean_result() -> None:
+    payloads = build_payloads(event=_event(), run=_run(), findings=[], conclusion="action_required",
+                              summary="Engine: llm\nIncomplete: model endpoint refused the key (401)",
+                              already_published=set(), options=PublishOptions())
+    body = next(p for p in payloads if p["kind"] == "review")["body"]["body"]
+    assert "Didn't find any major issues" not in body
+    assert "Couldn't finish reviewing this commit" in body and "refused the key" in body
+
+
+async def test_incomplete_review_gets_no_thumbs_up() -> None:
+    transport = FakeTransport()
+    await GitHubHttpPublisher(transport, token="t").publish(
+        event=_event(), run=_run(), findings=[], conclusion="action_required",
+        summary="Incomplete: x", already_published=set(), options=PublishOptions())
+    assert not any(u.endswith("/reactions") and b == {"content": "+1"} for m, u, b in transport.calls)
+
+
+async def test_a_redelivered_fix_comment_does_not_start_a_second_task() -> None:
+    yaml = "version: 1\nreviewer:\n  enabled: true\n  remediation:\n    enabled: true\n"
+    store = store_with_repo(config_yaml=yaml)
+    github = FakeGitHub()
+    calls: list = []
+
+    class GitPilot:
+        def repair(self, plan, *, dry_run=True):
+            calls.append(plan)
+            return {"status": "ok"}
+
+    ctx = _ctx(store, github, gitpilot_client=GitPilot())
+    await handle_github_comment(ctx, "c1", _comment("@selfrepair review"))
+    fix = _comment("@selfrepair fix")
+    fix["comment"]["id"] = 43
+    assert await handle_github_comment(ctx, "d-a", fix) == "completed"
+    assert await handle_github_comment(ctx, "d-b", fix) == "duplicate"
+    assert len(calls) == 1

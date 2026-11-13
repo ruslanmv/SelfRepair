@@ -135,8 +135,11 @@ class LLMReviewEngine:
                 break
             raw = self._complete(_user_prompt(event, chunk, index, len(chunks)), timeout=remaining)
             parsed = parse_response(raw)
-            summaries.append(parsed.get("summary") or "")
-            findings.extend(to_findings(parsed.get("findings"), {f.path for f in chunk}))
+            summaries.append(str(parsed.get("summary") or ""))
+            findings.extend(to_findings(parsed["findings"], {path for path, _ in chunk}))
+        cut = sorted({path for chunk in chunks for path, text in chunk if _CUT in text})
+        if cut and reason is None:
+            reason = "lines too long to review in " + ", ".join(cut[:5])
         summary = " ".join(s for s in summaries if s).strip() or "Model review completed."
         return ReviewReport(
             summary=summary[:2000],
@@ -208,29 +211,72 @@ def render_file(item: DiffFile) -> str:
     return "\n".join(out)
 
 
-def chunk_diff(diff: DiffSet) -> list[list[DiffFile]]:
-    """Group files into model calls of at most `_CHUNK_CHARS` rendered characters."""
-    chunks: list[list[DiffFile]] = []
-    current: list[DiffFile] = []
+Segment = tuple[str, str]  # (path, rendered text)
+_CUT = " …[line cut]"
+
+
+def chunk_diff(diff: DiffSet) -> list[list[Segment]]:
+    """Group rendered files into model calls of at most `_CHUNK_CHARS` characters.
+
+    A file larger than one call is split at hunk boundaries (and a hunk larger
+    than one call at line boundaries) into "(continued)" segments, so nothing
+    is dropped: every character is in some part, and parts the engine cannot
+    send make the review incomplete.
+    """
+    chunks: list[list[Segment]] = []
+    current: list[Segment] = []
     size = 0
     for item in diff.files:
         if item.status in {"binary", "removed"}:
             continue
-        length = len(render_file(item))
-        if current and size + length > _CHUNK_CHARS:
-            chunks.append(current)
-            current, size = [], 0
-        current.append(item)
-        size += length
+        for segment in _segments(item.path, render_file(item)):
+            length = len(segment[1])
+            if current and size + length > _CHUNK_CHARS:
+                chunks.append(current)
+                current, size = [], 0
+            current.append(segment)
+            size += length
     if current:
         chunks.append(current)
     return chunks
 
 
-def _user_prompt(event: ReviewEvent, files: list[DiffFile], index: int, total: int) -> str:
+def _segments(path: str, rendered: str) -> list[Segment]:
+    if len(rendered) <= _CHUNK_CHARS:
+        return [(path, rendered)]
+    header = f"FILE: {path} (continued)"
+    first, *lines = rendered.split("\n")
+    blocks: list[list[str]] = []
+    for line in lines:
+        if _HUNK.match(line) or not blocks:
+            blocks.append([])
+        blocks[-1].append(line)
+    out: list[Segment] = []
+    current: list[str] = [first]
+    size = len(current[0])
+    budget = _CHUNK_CHARS - len(header) - 1
+    for block in blocks:
+        text_len = sum(len(x) + 1 for x in block)
+        if size + text_len > _CHUNK_CHARS and len(current) > 1:
+            out.append((path, "\n".join(current)))
+            current, size = [header], len(header)
+        for line in block:
+            if len(line) > budget:
+                line = line[: budget - len(_CUT)] + _CUT
+            if size + len(line) + 1 > _CHUNK_CHARS and len(current) > 1:
+                out.append((path, "\n".join(current)))
+                current, size = [header], len(header)
+            current.append(line)
+            size += len(line) + 1
+    if len(current) > 1:
+        out.append((path, "\n".join(current)))
+    return out
+
+
+def _user_prompt(event: ReviewEvent, segments: list[Segment], index: int, total: int) -> str:
     title = redact(event.title or "").text[:300]
     part = f" (part {index + 1} of {total})" if total > 1 else ""
-    rendered = "\n\n".join(render_file(item)[:_CHUNK_CHARS] for item in files)
+    rendered = "\n\n".join(text for _, text in segments)
     return (
         f"Repository: {event.repo_full_name}\n"
         f"Pull request title (untrusted): {title}\n"
@@ -256,6 +302,12 @@ def parse_response(raw: str) -> dict[str, Any]:
         raise EngineUnavailable("model reply was not valid JSON") from exc
     if not isinstance(data, dict):
         raise EngineUnavailable("model reply was not a JSON object")
+    # `{}`, `{"error": ...}` or `{"findings": "none"}` is not a review. Treating it
+    # as "no findings" would let a refusal or a broken reply pass the check.
+    if not isinstance(data.get("findings"), list):
+        raise EngineUnavailable("model reply has no findings list")
+    if any(not isinstance(item, dict) for item in data["findings"]):
+        raise EngineUnavailable("model reply has malformed findings")
     return data
 
 
