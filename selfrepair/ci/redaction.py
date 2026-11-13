@@ -143,6 +143,9 @@ _CODE_KV = re.compile(
     r"([\"'])([^\"'\s]{8,})\2"
 )
 _STRING_LITERAL = re.compile(r"([\"'])([^\"'\n]{24,})\1")
+# Only the `user:password` part of a URL; the host, path and surrounding
+# quotes stay, so the code around it still parses for a reader.
+_CODE_URL_CRED = re.compile(r"\b([a-z][a-z0-9+\-.]*://)([^\s/@\"'`]+:[^\s/@\"'`]+)@", re.I)
 
 
 def redact_code(text: str) -> RedactionResult:
@@ -151,8 +154,13 @@ def redact_code(text: str) -> RedactionResult:
         return RedactionResult(text=text, secrets_found=0, classes_seen=())
     counter: Counter[str] = Counter()
     out = text
+    def _url(match: re.Match[str]) -> str:
+        counter["url_cred"] += 1
+        return f"{match.group(1)}{_token('url_cred', match.group(2))}@"
+
+    out = _CODE_URL_CRED.sub(_url, out)
     for kind, pattern in _PATTERNS:
-        if kind == "kv_secret":
+        if kind in {"kv_secret", "url_cred"}:
             continue
 
         def _sub(match: re.Match[str], _kind: str = kind) -> str:

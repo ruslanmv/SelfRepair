@@ -73,6 +73,8 @@ def org_defaults() -> dict[str, Any]:
         "triggers": {"push": False, "pull_request": True, "merge_request": False},
         "branches": {"include": [], "exclude": []},
         "review": {"style": "codex"},
+        # Large pull requests on free providers take minutes; see docs/reviewer/codex-style.md.
+        "execution": {"max_runtime_seconds": int(os.getenv("SELFREPAIR_REVIEW_MAX_SECONDS", "1200"))},
         "remediation": {"enabled": os.getenv("SELFREPAIR_REMEDIATION", "").lower() == "true"},
     }
 

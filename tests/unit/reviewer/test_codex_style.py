@@ -550,3 +550,11 @@ async def test_a_review_with_nothing_new_is_not_posted() -> None:
         event=_event(), run=_run(), findings=[_finding("medium", "y", line=11)], conclusion="success",
         summary="s", already_published=set(), options=PublishOptions())
     assert not any(m == "POST" and u.endswith("/reviews") for m, u, b in transport.calls)
+
+
+def test_url_credentials_are_hidden_without_breaking_the_line() -> None:
+    from selfrepair.ci.redaction import redact_code
+
+    out = redact_code('urls = ("https://user:pw@gitpilot.example", "x")').text
+    assert out.startswith('urls = ("https://<<REDACTED:url_cred:') and out.endswith('@gitpilot.example", "x")')
+    assert "user:pw" not in out
