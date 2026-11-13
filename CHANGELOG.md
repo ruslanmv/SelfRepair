@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Agent repair (`/v1/agent-repairs`)**: an intake for AI-agent issues sent by LangReplay
+  ([docs/agent-repair.md](docs/agent-repair.md)). Service-authenticated (bearer token + HMAC signature, org from
+  configuration), a repository allow-list, GitPilot's read-only planner, a person's approval with a file scope that
+  can only narrow the plan, `/repair` in `dry_run` within that scope, the patch applied to the pinned base commit
+  with the configured static checks, bounded retries, cooperative cancellation, and a **draft** pull request from a
+  `langreplay/<attempt>` branch. Migration `0009_agent_repair` adds two tables; nothing existing changes.
 - **HF Space console (`ruslanmv/selfrepair`)**: one unified React UI; email-verified auth (Neon Postgres + Upstash Redis + Mailtrap), admin panel with a protected **root** superuser, control-plane intake (`POST /v1/plans`) + Inbox/notifications, and a worker that attaches a **GitPilot dry-run patch preview** to each maintenance report.
 - **End-to-end real backend behind the SPA**. Every operator-console
   surface now reads from the real `selfrepair.api` `/v1` endpoints; the

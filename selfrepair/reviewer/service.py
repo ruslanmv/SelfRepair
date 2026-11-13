@@ -17,6 +17,7 @@ from selfrepair.policy.glob import matches
 from selfrepair.reviewer.diff import limit_diff
 from selfrepair.reviewer.engines.deterministic import DeterministicReviewEngine
 from selfrepair.reviewer.policy import conclude
+from selfrepair.reviewer.presentation import PublishOptions
 from selfrepair.reviewer.publishers import Publisher
 from selfrepair.reviewer.schemas import (
     ZERO_SHA,
@@ -127,10 +128,15 @@ async def review_change(
         await store.remember_installation(
             repo_id=repo.repo_id, installation_id=event.installation_id
         )
+    options = PublishOptions(
+        style=config.review.style,
+        inline_comments=config.review.inline_comments,
+        min_inline_priority=config.review.min_inline_priority,
+    )
     try:
         announce = getattr(publisher, "announce", None)
         if announce is not None:
-            await announce(event=event, run=run)
+            await announce(event=event, run=run, options=options)
         diff = await diff_provider.collect(event, repo)
         # Engines are synchronous and a model call can take minutes. Run them
         # off the event loop so other worker jobs and publication keep going.
@@ -158,6 +164,7 @@ async def review_change(
             conclusion=conclusion,
             summary=summary,
             already_published=already,
+            options=options,
         )
         publication_errors = [
             str(item.get("error") or item.get("status"))
@@ -194,11 +201,11 @@ async def review_change(
         )
         return ("reviewed" if status == "completed" else "incomplete"), run
     except TransientReviewError:
-        await _abandon(publisher, event, run, "transient provider error; retrying")
+        await _abandon(publisher, event, run, "transient provider error; retrying", options)
         await store.update_run(run.id, status="queued", conclusion=None, error="transient")
         raise
     except Exception as exc:  # noqa: BLE001 — a review must not end as success
-        await _abandon(publisher, event, run, type(exc).__name__)
+        await _abandon(publisher, event, run, type(exc).__name__, options)
         run = await store.update_run(
             run.id,
             status="incomplete",
@@ -210,13 +217,16 @@ async def review_change(
         return "incomplete", run
 
 
-async def _abandon(publisher: Any, event: ReviewEvent, run: RunRecord, reason: str) -> None:
+async def _abandon(
+    publisher: Any, event: ReviewEvent, run: RunRecord, reason: str,
+    options: PublishOptions | None = None,
+) -> None:
     """Close the announced check with a terminal result. Never raises."""
     abandon = getattr(publisher, "abandon", None)
     if abandon is None:
         return
     try:
-        await abandon(event=event, run=run, reason=reason)
+        await abandon(event=event, run=run, reason=reason, options=options)
     except Exception:  # noqa: BLE001 - must not mask the review's own error
         return
 
@@ -244,7 +254,7 @@ def _run_engines(
         model_report = engine.review(event, diff, config)
     except EngineUnavailable as exc:
         return ReviewReport(
-            summary=f"{deterministic.summary} Deep Agents unavailable: {exc.reason}",
+            summary=f"{deterministic.summary} Model review unavailable: {exc.reason}",
             findings=deterministic.findings,
             engine="deterministic",
             model_id=None,

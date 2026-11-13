@@ -13,6 +13,7 @@ Middleware stack (outermost first on requests):
 FastAPI applies middleware in reverse-add order, so the order of the
 `add_middleware` calls below is the inverse of the request flow above.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,9 +32,11 @@ from selfrepair.api.middleware import (
     RequestIdMiddleware,
 )
 from selfrepair.api.routes import (
+    agent_repairs,
     audit,
     auth,
     ci,
+    connections,
     dashboard,
     findings,
     health,
@@ -140,9 +143,12 @@ def build_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(routines.router)
     app.include_router(integrations.router)
+    app.include_router(connections.router)
     app.include_router(metrics.router)
     app.include_router(ci.router)
     app.include_router(issues.router)
+    # Agent repair: AI-agent issues sent by LangReplay, service-authenticated (selfrepair/agent_repair).
+    app.include_router(agent_repairs.router)
     # v1 stable client contract (JSON-RPC over /v1/rpc + /v1/about)
     app.include_router(v1_rpc_router)
     return app

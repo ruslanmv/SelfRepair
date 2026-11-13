@@ -148,6 +148,15 @@ async def ingest_webhook(
             payload=payload,
         )
 
+    if event_type == "issue_comment":
+        # `@selfrepair review` / `@selfrepair fix` on a pull request. Anything
+        # else (and any comment the reviewer does not own) goes to Issue Watch.
+        from selfrepair.reviewer.commands import handle_github_comment
+
+        handled = await handle_github_comment(ctx, delivery_id, payload)
+        if handled is not None:
+            return handled
+
     if event_type in _ISSUE_EVENTS:
         from selfrepair.issues.dispatcher import dispatch_github_issue_event
 
@@ -244,6 +253,13 @@ from selfrepair.issues.sync import (  # noqa: E402  (kept after handlers for rea
 )
 
 
+async def agent_repair_step(ctx: dict[str, Any], repair_id: str, step: str) -> str:
+    """Run one step (plan | implement) of an agent repair sent by LangReplay. See selfrepair/agent_repair."""
+    from selfrepair.agent_repair.pipeline import run_step
+
+    return await run_step(ctx["sessionmaker"], uuid.UUID(repair_id), step)
+
+
 class WorkerSettings:
     functions = [
         process_job,
@@ -253,6 +269,7 @@ class WorkerSettings:
         remediate_review,
         sync_external_issues,
         scheduled_sync_external_issues,
+        agent_repair_step,
     ]
     on_startup = startup
     on_shutdown = shutdown

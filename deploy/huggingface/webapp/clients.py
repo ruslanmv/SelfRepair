@@ -13,12 +13,10 @@ from typing import Any
 
 import httpx
 
-# Sensible defaults pointing at the live Spaces.
-DEFAULTS: dict[str, str] = {
-    "ollabridge": "https://ruslanmv-ollabridge.hf.space/v1",
-    "gitpilot": "https://ruslanmv-gitpilot.hf.space",
-    "matrixlab": "https://ruslanmv-matrixlab.hf.space",
-}
+from .connector_service import DEFAULTS as _SHARED_DEFAULTS
+
+# Same catalogue as the full API. OllaBridge defaults to Cloud, not a Space.
+DEFAULTS: dict[str, str] = dict(_SHARED_DEFAULTS)
 
 PROVIDERS = ("ollabridge", "gitpilot", "matrixlab")
 PROVIDER_LABELS = {
@@ -34,84 +32,34 @@ def _result(status: str, detail: str, extra: dict[str, Any] | None = None) -> di
     return {"status": status, "detail": detail, "extra": extra or {}}
 
 
-def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, Any]:
-    with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
-        r = c.get(url, headers=headers or {})
-        body: Any
-        try:
-            body = r.json()
-        except Exception:
-            body = r.text[:400]
-        return r.status_code, body
-
-
 def test_ollabridge(base_url: str, api_key: str) -> dict[str, Any]:
-    """Probe OllaBridge: list models (auth) and report resolved aliases/models."""
-    base = (base_url or DEFAULTS["ollabridge"]).rstrip("/")
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    # 1) Models endpoint is the strongest signal of a working gateway.
+    """Authorized model listing. A health response alone is not success."""
+    from .connector_service import ConnectorError, probe_ollabridge
+
     try:
-        code, body = _get(f"{base}/models", headers=headers)
-        if 200 <= code < 300:
-            ids = []
-            if isinstance(body, dict):
-                data = body.get("data") or body.get("models") or []
-                ids = [m.get("id") if isinstance(m, dict) else m for m in data]
-            return _result("ok", f"Connected — {len(ids)} model(s)/alias(es) available.", {"models": ids[:24]})
-        if code in (401, 403):
-            return _result("error", f"Reachable but unauthorized ({code}). Check the API key.", {})
-    except httpx.HTTPError as e:
-        last = str(e)
-    else:
-        last = f"HTTP {code}"
-    # 2) Fall back to the Space root health.
-    root = base[:-3] if base.endswith("/v1") else base
-    try:
-        code, _ = _get(f"{root}/health")
-        if 200 <= code < 300:
-            return _result("ok", "Service reachable (health ok); /models not authorized yet.", {})
-    except httpx.HTTPError as e:
-        last = str(e)
-    return _result("error", f"Could not reach OllaBridge /models. ({last})", {})
+        return probe_ollabridge(base_url, api_key)
+    except ConnectorError as exc:
+        return _result("error", exc.detail, {})
 
 
 def test_gitpilot(url: str, token: str) -> dict[str, Any]:
-    base = (url or DEFAULTS["gitpilot"]).rstrip("/")
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    last = ""
-    for path in ("/v1/health", "/health", "/"):
-        try:
-            code, body = _get(f"{base}{path}", headers=headers)
-            if 200 <= code < 300:
-                ver = body.get("version") if isinstance(body, dict) else None
-                return _result("ok", f"GitPilot reachable at {path}" + (f" (v{ver})" if ver else "."), {})
-            last = f"HTTP {code} at {path}"
-        except httpx.HTTPError as e:
-            last = str(e)
-    return _result("error", f"Could not reach GitPilot. ({last})", {})
+    """Health check only. This does not submit a repair."""
+    from .connector_service import ConnectorError, probe_gitpilot
+
+    try:
+        return probe_gitpilot(url, token)
+    except ConnectorError as exc:
+        return _result("error", exc.detail, {})
 
 
 def test_matrixlab(url: str, token: str) -> dict[str, Any]:
-    base = (url or DEFAULTS["matrixlab"]).rstrip("/")
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    last = ""
-    profiles: list[str] = []
-    # capabilities first (richer), then health.
-    for path in ("/capabilities", "/health"):
-        try:
-            code, body = _get(f"{base}{path}", headers=headers)
-            if 200 <= code < 300:
-                if isinstance(body, dict) and body.get("profiles"):
-                    profiles = list(body["profiles"])
-                if path == "/capabilities" and profiles:
-                    return _result("ok", f"MatrixLab reachable — {len(profiles)} profile(s).", {"profiles": profiles})
-                if path == "/health":
-                    return _result("ok", "MatrixLab health ok.", {"profiles": profiles})
-            else:
-                last = f"HTTP {code} at {path}"
-        except httpx.HTTPError as e:
-            last = str(e)
-    return _result("error", f"Could not reach MatrixLab. ({last})", {})
+    """Capabilities and health. This does not execute a patch."""
+    from .connector_service import ConnectorError, probe_matrixlab
+
+    try:
+        return probe_matrixlab(url, token)
+    except ConnectorError as exc:
+        return _result("error", exc.detail, {})
 
 
 def test_provider(provider: str, base_url: str, secret: str) -> dict[str, Any]:

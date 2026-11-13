@@ -15,6 +15,7 @@ Contract (MatrixLab implements the server side):
 Degrades gracefully: ``health()`` returns False when unreachable, and run /
 validate calls return a stub result so dry-run flows complete offline.
 """
+
 from __future__ import annotations
 
 import logging
@@ -77,7 +78,7 @@ class MatrixLabClient:
     def health(self) -> bool:
         """Return True if MatrixLab is reachable and healthy, else False."""
         try:
-            resp = httpx.get(f"{self.base_url}/health", timeout=5)
+            resp = httpx.get(f"{self.base_url}/health", headers=self._headers(), timeout=5)
             return resp.status_code == 200
         except Exception:
             return False
