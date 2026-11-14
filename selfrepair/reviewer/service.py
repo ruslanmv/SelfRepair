@@ -132,6 +132,7 @@ async def review_change(
         style=config.review.style,
         inline_comments=config.review.inline_comments,
         min_inline_priority=config.review.min_inline_priority,
+        max_inline_comments=config.review.max_inline_comments,
     )
     try:
         announce = getattr(publisher, "announce", None)
@@ -336,6 +337,9 @@ def _summary(event: ReviewEvent, report: ReviewReport, conclusion: str, diff: Di
     ]
     if diff.truncated:
         parts.append("The diff was truncated. This check does not pass on the unread portion.")
+    if diff.skipped:
+        names = ", ".join(diff.skipped[:5]) + (f" and {len(diff.skipped) - 5} more" if len(diff.skipped) > 5 else "")
+        parts.append(f"Skipped {len(diff.skipped)} generated file(s): {names}.")
     if report.incomplete_reason:
         parts.append(f"Incomplete: {report.incomplete_reason}")
     return "\n".join(parts)
