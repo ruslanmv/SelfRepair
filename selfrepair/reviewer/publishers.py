@@ -240,6 +240,9 @@ def _codex_payloads(
         if item.side == "RIGHT" and item.file_path and item.start_line is not None
         and presentation.inline_allowed(item, options)
     ]
+    _rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    inline.sort(key=lambda item: (_rank.get(item.severity, 5), -item.confidence))
+    inline = inline[: options.max_inline_comments]
     listed = [item for item in fresh if item not in inline]
     wants_review = bool(fresh) or not findings
     incomplete = _incomplete_reason(conclusion, summary)
@@ -265,11 +268,8 @@ def _codex_payloads(
         body = presentation.review_body(
             run.head_sha, listed if not inline else fresh,
             posted_inline=len(inline), incomplete=incomplete,
+            also=listed if inline else None,
         )
-        if inline and listed:
-            body += "\n\nAlso noted, outside the inline threshold:\n" + "\n".join(
-                f"- **{presentation.priority(item.severity)}** {item.title}" for item in listed
-            )
         out.append({
             "kind": "review",
             "body": {
@@ -306,8 +306,8 @@ def github_check_body(
                 "start_line": finding.start_line,
                 "end_line": finding.end_line or finding.start_line,
                 "annotation_level": _annotation_level(finding.severity),
-                "message": _comment(finding)[:60000],
-                "title": finding.title[:255],
+                "message": presentation.annotation_text(finding)[:60000],
+                "title": presentation.annotation_title(finding),
             }
         )
     title = _title(conclusion, len(findings))
@@ -458,6 +458,10 @@ class GitHubHttpPublisher:
                     continue
                 url = f"{self._api}/repos/{event.repo_full_name}/check-runs"
             elif item["kind"] == "review" and event.pr_number is not None:
+                if _codex(options, event):
+                    item = await self._drop_already_commented(event, item)
+                    if item is None:
+                        continue
                 url = (
                     f"{self._api}/repos/{event.repo_full_name}/pulls/"
                     f"{event.pr_number}/reviews"
@@ -551,6 +555,42 @@ class GitHubHttpPublisher:
                 f"{self._api}/repos/{event.repo_full_name}/check-runs", json=body, headers=headers
             )
         return await patch(url, json=update, headers=headers)
+
+    async def _drop_already_commented(
+        self, event: ReviewEvent, item: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Skip inline suggestions on lines this bot already commented on.
+
+        GitHub is the source of truth: the local store forgets on a restart, and
+        a model may word the same finding differently on the next commit. A
+        review left with nothing new is not posted. Best effort: if the listing
+        fails, the review is posted as built.
+        """
+        get = getattr(self._transport, "get", None)
+        comments = item["body"].get("comments") or []
+        if get is None or not comments:
+            return item
+        url = (f"{self._api}/repos/{event.repo_full_name}/pulls/{event.pr_number}"
+               "/comments?per_page=100")
+        try:
+            response = await get(url, _headers_for(self._token))
+            listing = response.json() if getattr(response, "status_code", 0) < 400 else None
+        except Exception:  # noqa: BLE001 - see docstring
+            return item
+        if not isinstance(listing, list):
+            return item
+        seen = {
+            (c.get("path"), c.get("line") or c.get("original_line"))
+            for c in listing
+            if (c.get("user") or {}).get("type") == "Bot" and "sr-finding:" in (c.get("body") or "")
+        }
+        keep = [c for c in comments if (c["path"], c["line"]) not in seen]
+        if len(keep) == len(comments):
+            return item
+        if not keep:
+            return None
+        body = dict(item["body"], comments=keep)
+        return dict(item, body=body)
 
     async def _status_comment(self, event: ReviewEvent, head_sha: str, state: str) -> None:
         """Create or edit the one status comment on the pull request. Best effort.

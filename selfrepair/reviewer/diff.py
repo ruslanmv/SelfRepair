@@ -5,10 +5,34 @@ patch. A model-supplied line that is not in the diff is rejected.
 """
 from __future__ import annotations
 
+import re
+
 from selfrepair.reviewer.schemas import ZERO_SHA, DiffFile, DiffLine, DiffSet, ReviewEvent
 
 _MAX_FILES = 200
-_MAX_PATCH_CHARS = 400_000
+_MAX_PATCH_CHARS = 600_000
+
+# Files no person writes by hand. Reviewing them wastes the budget and the
+# model cannot say anything useful about a minified bundle.
+_LOCKFILES = frozenset({
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
+    "poetry.lock", "uv.lock", "pdm.lock", "Pipfile.lock", "Cargo.lock", "go.sum",
+    "composer.lock", "Gemfile.lock", "mix.lock", "flake.lock", "packages.lock.json",
+})
+_GENERATED = re.compile(
+    r"(^|/)(node_modules|vendor|dist|\.next|\.nuxt|__snapshots__)/"
+    r"|(^|/)build/.*\.(js|mjs|cjs|css|html|map)$"
+    r"|\.min\.(js|css|mjs)$"
+    r"|\.(js|css|mjs)\.map$|\.map$"
+    r"|(^|/)assets/[^/]+-[A-Za-z0-9_-]{8,}\.(js|mjs|css)$"   # hashed bundler output
+    r"|_pb2(_grpc)?\.py$|\.pb\.go$|\.generated\.\w+$"
+)
+
+
+def is_generated(path: str) -> bool:
+    """True for lockfiles, build output, bundles and source maps."""
+    name = path.rsplit("/", 1)[-1]
+    return name in _LOCKFILES or bool(_GENERATED.search(path))
 
 
 def parse_unified_diff(text: str) -> list[DiffFile]:
@@ -118,6 +142,8 @@ def parse_github_files(files: list[dict]) -> list[DiffFile]:
 def limit_diff(files: list[DiffFile]) -> DiffSet:
     """Cap review input. Truncation is reported; it is not a successful review."""
     kept: list[DiffFile] = []
+    skipped = [item.path for item in files if is_generated(item.path)]
+    files = [item for item in files if not is_generated(item.path)]
     used = 0
     truncated = False
     for item in files:
@@ -133,7 +159,7 @@ def limit_diff(files: list[DiffFile]) -> DiffSet:
             break
         used += len(patch)
         kept.append(item)
-    return DiffSet(files=kept, truncated=truncated, source="patch")
+    return DiffSet(files=kept, truncated=truncated, source="patch", skipped=skipped)
 
 
 def line_allowed(diff: DiffSet, path: str | None, line: int | None, side: str | None) -> bool:
